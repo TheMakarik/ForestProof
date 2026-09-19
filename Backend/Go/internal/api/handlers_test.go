@@ -84,6 +84,15 @@ func newTestServer(t *testing.T) *httptest.Server {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/analyses":
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"runId":"upstream-run","status":"Complete","aoiId":"RU_TVER_01"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/analyses/changes":
+			w.Header().Set("Content-Type", "application/geo+json")
+			w.Write([]byte(`{"type":"FeatureCollection","features":[]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/analyses/reports":
+			w.Header().Set("Content-Type", "application/pdf")
+			w.Write([]byte("%PDF-1.4 fake"))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/experiments/sensitivity":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"aoiId":"RU_TVER_01","sensitivity":[]}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/analyses/RU_TVER_01/changes":
 			w.Header().Set("Content-Type", "application/geo+json")
 			w.Write([]byte(`{"type":"FeatureCollection","features":[]}`))

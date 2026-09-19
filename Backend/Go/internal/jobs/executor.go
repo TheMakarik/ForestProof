@@ -14,8 +14,8 @@ import (
 // client.
 type Upstream interface {
 	CreateAnalysis(ctx context.Context, req upstream.CreateAnalysisRequest) (json.RawMessage, string, error)
-	GetChanges(ctx context.Context, aoiID string, startYear, endYear int) (json.RawMessage, error)
-	GenerateReport(ctx context.Context, aoiID string, startYear, endYear int) ([]byte, error)
+	GetChangesForRequest(ctx context.Context, req upstream.CreateAnalysisRequest) (json.RawMessage, error)
+	GenerateReportForRequest(ctx context.Context, req upstream.CreateAnalysisRequest, format string) ([]byte, error)
 }
 
 // Executor runs a job's request against Upstream in the background and
@@ -35,10 +35,10 @@ func NewExecutor(store *Store, up Upstream, timeout time.Duration) *Executor {
 	return &Executor{Store: store, Upstream: up, Timeout: timeout}
 }
 
-// Run executes jobID's pipeline: CreateAnalysis, then — only if the job's
-// request has an AoiID (C# has no polygon-based route for these two) —
-// GetChanges and GenerateReport. Every step's outcome is folded into the
-// job via Store.Update.
+// Run executes jobID's pipeline: CreateAnalysis, then GetChanges and
+// GenerateReport (as PDF). All three go through the POST-by-request
+// upstream routes, so they work for both an aoiId and a custom polygon.
+// Every step's outcome is folded into the job via Store.Update.
 //
 // Callers MUST pass a context that outlives the HTTP request that
 // triggered the job (typically context.Background()), never the inbound
@@ -53,18 +53,21 @@ func (e *Executor) Run(ctx context.Context, jobID string) {
 		return
 	}
 
+	req := upstream.CreateAnalysisRequest{
+		AoiID:          job.Request.AoiID,
+		PolygonGeoJSON: job.Request.PolygonGeoJSON,
+		MethodProfile:  job.Request.MethodProfile,
+		StartYear:      job.Request.StartYear,
+		EndYear:        job.Request.EndYear,
+	}
+
 	_ = e.Store.Update(jobID, func(j *Job) {
 		j.Status = StatusRunning
 		j.Phase = "calling_summary"
 		j.Progress = 10
 	})
 
-	rawSummary, csharpStatus, err := e.Upstream.CreateAnalysis(ctx, upstream.CreateAnalysisRequest{
-		AoiID:          job.Request.AoiID,
-		PolygonGeoJSON: job.Request.PolygonGeoJSON,
-		StartYear:      job.Request.StartYear,
-		EndYear:        job.Request.EndYear,
-	})
+	rawSummary, csharpStatus, err := e.Upstream.CreateAnalysis(ctx, req)
 	if err != nil {
 		e.fail(jobID, err)
 		return
@@ -84,23 +87,12 @@ func (e *Executor) Run(ctx context.Context, jobID string) {
 		return
 	}
 
-	if job.Request.AoiID == "" {
-		_ = e.Store.Update(jobID, func(j *Job) {
-			j.Phase = "complete"
-			j.Progress = 100
-			j.Warnings = append(j.Warnings,
-				"zone geometry and PDF report unavailable for custom-polygon analyses — "+
-					"upstream only exposes /changes and /reports by aoi_id")
-		})
-		return
-	}
-
 	_ = e.Store.Update(jobID, func(j *Job) {
 		j.Phase = "calling_changes"
 		j.Progress = 55
 	})
 
-	rawChanges, err := e.Upstream.GetChanges(ctx, job.Request.AoiID, job.Request.StartYear, job.Request.EndYear)
+	rawChanges, err := e.Upstream.GetChangesForRequest(ctx, req)
 	if err != nil {
 		e.fail(jobID, err)
 		return
@@ -114,7 +106,7 @@ func (e *Executor) Run(ctx context.Context, jobID string) {
 		j.Progress = 85
 	})
 
-	reportPDF, err := e.Upstream.GenerateReport(ctx, job.Request.AoiID, job.Request.StartYear, job.Request.EndYear)
+	reportPDF, err := e.Upstream.GenerateReportForRequest(ctx, req, "pdf")
 	if err != nil {
 		e.fail(jobID, err)
 		return

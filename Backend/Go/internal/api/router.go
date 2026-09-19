@@ -66,6 +66,8 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/areas", deps.handleGetAreas)
 	mux.HandleFunc("GET /api/v1/projects", deps.handleGetProjects)
 
+	mux.HandleFunc("GET /api/v1/experiments/sensitivity", deps.handleSensitivity)
+
 	return withLogging(mux)
 }
 

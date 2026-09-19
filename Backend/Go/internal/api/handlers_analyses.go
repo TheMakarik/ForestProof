@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"forestproof-gateway/internal/hashutil"
 	"forestproof-gateway/internal/jobs"
 	"forestproof-gateway/internal/layers"
+	"forestproof-gateway/internal/upstream"
 )
 
 func (d Deps) handleCreateAnalysis(w http.ResponseWriter, r *http.Request) {
@@ -163,11 +165,6 @@ func (d Deps) handleGetChanges(w http.ResponseWriter, r *http.Request) {
 		writeNotReady(w, job)
 		return
 	}
-	if job.Request.AoiID == "" {
-		WriteError(w, http.StatusNotFound, ErrNotFound,
-			"zone geometry is unavailable for custom-polygon analyses (upstream only exposes /changes by aoi_id)")
-		return
-	}
 	if job.Bundle == nil || job.Bundle.ChangesJSON == nil {
 		WriteError(w, http.StatusConflict, ErrConflict, "changes not available for this job")
 		return
@@ -185,23 +182,105 @@ func (d Deps) handleGetReport(w http.ResponseWriter, r *http.Request) {
 		writeNotReady(w, job)
 		return
 	}
-	if job.Request.AoiID == "" {
-		WriteError(w, http.StatusNotFound, ErrNotFound,
-			"a PDF report is unavailable for custom-polygon analyses (upstream only exposes /reports by aoi_id)")
-		return
+
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	if format == "" {
+		format = "pdf"
 	}
-	if !job.HasReport {
-		WriteError(w, http.StatusConflict, ErrConflict, "report not available for this job")
+	contentType, ok := reportContentType(format)
+	if !ok {
+		WriteError(w, http.StatusBadRequest, ErrInvalidRequest, "unsupported format "+format+"; want pdf, html or json")
 		return
 	}
 
-	data, err := os.ReadFile(d.Store.ReportPath(job.ID))
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, ErrInternal, "report file missing on disk")
+	// The executor caches the default PDF bundle, so serve that when we can
+	// instead of recomputing it upstream.
+	if format == "pdf" && job.HasReport {
+		data, err := os.ReadFile(d.Store.ReportPath(job.ID))
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, ErrInternal, "report file missing on disk")
+			return
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Write(data)
 		return
 	}
-	w.Header().Set("Content-Type", "application/pdf")
+
+	data, err := d.Upstream.GenerateReportForRequest(r.Context(), toUpstreamRequest(job.Request), format)
+	if err != nil {
+		writeUpstreamError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
 	w.Write(data)
+}
+
+// reportContentType maps a public report format to its response
+// Content-Type, reporting false for anything unsupported.
+func reportContentType(format string) (string, bool) {
+	switch format {
+	case "pdf":
+		return "application/pdf", true
+	case "html":
+		return "text/html", true
+	case "json":
+		return "application/json", true
+	default:
+		return "", false
+	}
+}
+
+// toUpstreamRequest converts a stored job request into the upstream client's
+// request shape.
+func toUpstreamRequest(req jobs.Request) upstream.CreateAnalysisRequest {
+	return upstream.CreateAnalysisRequest{
+		AoiID:          req.AoiID,
+		PolygonGeoJSON: req.PolygonGeoJSON,
+		MethodProfile:  req.MethodProfile,
+		StartYear:      req.StartYear,
+		EndYear:        req.EndYear,
+	}
+}
+
+// handleSensitivity proxies GET /api/v1/experiments/sensitivity to the C#
+// backend, which owns the sensitivity computation.
+func (d Deps) handleSensitivity(w http.ResponseWriter, r *http.Request) {
+	aoiID := strings.TrimSpace(r.URL.Query().Get("aoiId"))
+	if aoiID == "" {
+		WriteError(w, http.StatusBadRequest, ErrInvalidRequest, "aoiId is required")
+		return
+	}
+
+	startYear, err := parseYearQuery(r, "startYear")
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, ErrInvalidRequest, err.Error())
+		return
+	}
+	endYear, err := parseYearQuery(r, "endYear")
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, ErrInvalidRequest, err.Error())
+		return
+	}
+
+	body, err := d.Upstream.GetSensitivity(r.Context(), aoiID, startYear, endYear)
+	if err != nil {
+		writeUpstreamError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(body)
+}
+
+func parseYearQuery(r *http.Request, name string) (int, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get(name))
+	if raw == "" {
+		return 0, fmt.Errorf("%s is required", name)
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", name)
+	}
+	return value, nil
 }
 
 func (d Deps) handleListLayers(w http.ResponseWriter, r *http.Request) {

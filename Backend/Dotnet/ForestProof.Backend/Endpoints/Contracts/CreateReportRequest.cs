@@ -1,9 +1,9 @@
 namespace ForestProof.Backend.Endpoints.Contracts;
 
 /// <summary>
-/// Запрос на создание расчёта по территории и периоду.
+/// Запрос на формирование отчёта по территории и периоду.
 /// </summary>
-public sealed record CreateAnalysisRequest
+public sealed record CreateReportRequest
 {
     /// <summary>
     /// Идентификатор AOI из каталога; может быть не задан при пользовательском полигоне.
@@ -26,7 +26,7 @@ public sealed record CreateAnalysisRequest
     public required int EndYear { get; init; }
 
     /// <summary>
-    /// Профиль метода расчёта: "default", "extended_scl" (расширенная SCL-маска) или "k2" (коэффициент чувствительности 2).
+    /// Формат отчёта: "html", "json" или "pdf"; null — PDF по умолчанию.
     /// </summary>
-    public string? MethodProfile { get; init; }
+    public string? Format { get; init; }
 }

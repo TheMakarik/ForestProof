@@ -5,6 +5,7 @@ using ForestProof.Backend.Persistence.Entities;
 using ForestProof.Backend.Persistence.Enums;
 using ForestProof.Backend.Persistence.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using NetTopologySuite.IO;
 
 namespace ForestProof.Backend.Persistence;
 
@@ -43,6 +44,9 @@ public sealed class AnalysisRunRepository(IDbContextFactory<ForestProofDbContext
             YearStart = summary.StartYear,
             YearEnd = summary.EndYear,
             KSensitivity = request.SensitivityCoefficient ?? 0,
+            InputHash = summary.InputHash,
+            SclMode = request.UseExtendedSclClasses ? "extended" : "strict",
+            RequestedGeometry = ParseRequestedGeometry(request.PolygonGeoJson),
             Status = MapStatus(summary.Status),
             CreatedAt = summary.CreatedAt,
             MethodVersion = summary.MethodVersion,
@@ -134,6 +138,22 @@ public sealed class AnalysisRunRepository(IDbContextFactory<ForestProofDbContext
         }
 
         return run;
+    }
+
+    private static NetTopologySuite.Geometries.Geometry? ParseRequestedGeometry(string? polygonGeoJson)
+    {
+        if (string.IsNullOrWhiteSpace(polygonGeoJson))
+            return null;
+
+        try
+        {
+            return new GeoJsonReader()
+                .Read<NetTopologySuite.Geometries.Geometry>(polygonGeoJson);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static AnalysisStatus MapStatus(RunStatus status) => status switch

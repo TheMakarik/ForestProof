@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://127.0.0.1:5370/"
+      "url": "http://127.0.0.1:5401/"
     }
   ],
   "paths": {
@@ -39,6 +39,50 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CreateAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/analyses/changes": {
+      "post": {
+        "tags": [
+          "ForestProof.Backend"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/analyses/reports": {
+      "post": {
+        "tags": [
+          "ForestProof.Backend"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReportRequest"
               }
             }
           },
@@ -439,6 +483,12 @@
               "string"
             ],
             "format": "int32"
+          },
+          "methodProfile": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -458,6 +508,49 @@
             ]
           },
           "claimedResult": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CreateReportRequest": {
+        "required": [
+          "startYear",
+          "endYear"
+        ],
+        "type": "object",
+        "properties": {
+          "aoiId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "polygonGeoJson": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "startYear": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "endYear": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "format": {
             "type": [
               "null",
               "string"

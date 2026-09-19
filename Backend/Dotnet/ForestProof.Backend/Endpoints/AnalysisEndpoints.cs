@@ -39,13 +39,10 @@ public static class AnalysisEndpoints
             ILoggerFactory loggerFactory,
             CancellationToken cancellationToken) =>
         {
-            var analysisRequest = new AnalysisRequest
-            {
-                AoiId = request.AoiId,
-                PolygonGeoJson = request.PolygonGeoJson,
-                StartYear = request.StartYear,
-                EndYear = request.EndYear
-            };
+            if (!IsKnownMethodProfile(request.MethodProfile))
+                return Results.BadRequest(new ApiError { Message = $"unknown methodProfile: {request.MethodProfile}" });
+
+            var analysisRequest = ToAnalysisRequest(request);
 
             var options = calculationOptions.Value;
             var sensitivity = analysisRequest.SensitivityCoefficient ?? options.DefaultSensitivityCoefficient;
@@ -67,6 +64,16 @@ public static class AnalysisEndpoints
             }
         });
 
+        group.MapPost("/analyses/changes", (
+            CreateAnalysisRequest request,
+            IAnalysisPipeline pipeline) => BuildChanges(pipeline, ToAnalysisRequest(request)));
+
+        group.MapPost("/analyses/reports", (
+            CreateReportRequest request,
+            IAnalysisPipeline pipeline,
+            IReportService reportService) =>
+            BuildReport(pipeline, reportService, ToAnalysisRequest(request), request.Format));
+
         group.MapGet("/analyses/{aoiId}/summary", (
             string aoiId,
             int startYear,
@@ -86,29 +93,12 @@ public static class AnalysisEndpoints
             string? format,
             IAnalysisPipeline pipeline,
             IReportService reportService) =>
-        {
-            try
+            BuildReport(pipeline, reportService, new AnalysisRequest
             {
-                var summary = pipeline.Run(new AnalysisRequest
-                {
-                    AoiId = aoiId,
-                    StartYear = startYear,
-                    EndYear = endYear
-                });
-                var report = reportService.Generate(summary);
-
-                return format switch
-                {
-                    "html" => Results.Text(report.Html, "text/html; charset=utf-8"),
-                    "json" => Results.Text(report.Json, "application/json; charset=utf-8"),
-                    _ => Results.File(report.Pdf, "application/pdf")
-                };
-            }
-            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException)
-            {
-                return Results.BadRequest(new ApiError { Message = exception.Message });
-            }
-        });
+                AoiId = aoiId,
+                StartYear = startYear,
+                EndYear = endYear
+            }, format));
 
         group.MapGet("/analyses/{aoiId}/yearly.csv", (
             string aoiId,
@@ -157,52 +147,12 @@ public static class AnalysisEndpoints
             int startYear,
             int endYear,
             IAnalysisPipeline pipeline) =>
-        {
-            try
+            BuildChanges(pipeline, new AnalysisRequest
             {
-                var summary = pipeline.Run(new AnalysisRequest
-                {
-                    AoiId = aoiId,
-                    StartYear = startYear,
-                    EndYear = endYear
-                });
-
-                var evidenceByZone = summary.ChangeZoneEvidence.ToDictionary(evidence => evidence.ZoneId);
-                var writer = new NetTopologySuite.IO.GeoJsonWriter();
-                var features = new List<object>();
-
-                foreach (var zone in summary.ChangeZones)
-                {
-                    evidenceByZone.TryGetValue(zone.Id, out var evidence);
-
-                    features.Add(new
-                    {
-                        type = "Feature",
-                        geometry = zone.Geometry is { } geometry
-                            ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(writer.Write(geometry))
-                            : (System.Text.Json.JsonElement?)null,
-                        properties = new
-                        {
-                            id = zone.Id,
-                            areaHectares = zone.AreaHectares,
-                            contributionToDeltaCarbon = zone.ContributionToDeltaCarbon,
-                            pixelCount = zone.PixelCount,
-                            evidenceTypes = evidence?.EvidenceTypes.Select(type => type.ToString()).ToArray()
-                                ?? Array.Empty<string>(),
-                            causeStatus = evidence?.CauseStatus.ToString() ?? "Unknown",
-                            interpretation = evidence?.Interpretation
-                                ?? CauseStatusRules.Interpretation(CauseStatus.Unknown)
-                        }
-                    });
-                }
-
-                return Results.Ok(new { type = "FeatureCollection", features });
-            }
-            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException)
-            {
-                return Results.BadRequest(new ApiError { Message = exception.Message });
-            }
-        });
+                AoiId = aoiId,
+                StartYear = startYear,
+                EndYear = endYear
+            }));
 
         group.MapGet("/experiments/sensitivity", (
             string aoiId,
@@ -341,6 +291,102 @@ public static class AnalysisEndpoints
         {
             var summary = pipeline.Run(request);
             return Results.Ok(ToResponse(summary));
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException)
+        {
+            return Results.BadRequest(new ApiError { Message = exception.Message });
+        }
+    }
+
+    private static AnalysisRequest ToAnalysisRequest(CreateAnalysisRequest request)
+    {
+        var analysisRequest = new AnalysisRequest
+        {
+            AoiId = request.AoiId,
+            PolygonGeoJson = request.PolygonGeoJson,
+            StartYear = request.StartYear,
+            EndYear = request.EndYear
+        };
+
+        return request.MethodProfile switch
+        {
+            "extended_scl" => analysisRequest with { UseExtendedSclClasses = true },
+            "k2" => analysisRequest with { SensitivityCoefficient = 2 },
+            _ => analysisRequest
+        };
+    }
+
+    private static AnalysisRequest ToAnalysisRequest(CreateReportRequest request) => new()
+    {
+        AoiId = request.AoiId,
+        PolygonGeoJson = request.PolygonGeoJson,
+        StartYear = request.StartYear,
+        EndYear = request.EndYear
+    };
+
+    private static bool IsKnownMethodProfile(string? methodProfile) =>
+        string.IsNullOrEmpty(methodProfile) || methodProfile is "default" or "extended_scl" or "k2";
+
+    private static IResult BuildChanges(IAnalysisPipeline pipeline, AnalysisRequest request)
+    {
+        try
+        {
+            var summary = pipeline.Run(request);
+
+            var evidenceByZone = summary.ChangeZoneEvidence.ToDictionary(evidence => evidence.ZoneId);
+            var writer = new NetTopologySuite.IO.GeoJsonWriter();
+            var features = new List<object>();
+
+            foreach (var zone in summary.ChangeZones)
+            {
+                evidenceByZone.TryGetValue(zone.Id, out var evidence);
+
+                features.Add(new
+                {
+                    type = "Feature",
+                    geometry = zone.Geometry is { } geometry
+                        ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(writer.Write(geometry))
+                        : (System.Text.Json.JsonElement?)null,
+                    properties = new
+                    {
+                        id = zone.Id,
+                        areaHectares = zone.AreaHectares,
+                        contributionToDeltaCarbon = zone.ContributionToDeltaCarbon,
+                        pixelCount = zone.PixelCount,
+                        evidenceTypes = evidence?.EvidenceTypes.Select(type => type.ToString()).ToArray()
+                            ?? Array.Empty<string>(),
+                        causeStatus = evidence?.CauseStatus.ToString() ?? "Unknown",
+                        interpretation = evidence?.Interpretation
+                            ?? CauseStatusRules.Interpretation(CauseStatus.Unknown)
+                    }
+                });
+            }
+
+            return Results.Ok(new { type = "FeatureCollection", features });
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException)
+        {
+            return Results.BadRequest(new ApiError { Message = exception.Message });
+        }
+    }
+
+    private static IResult BuildReport(
+        IAnalysisPipeline pipeline,
+        IReportService reportService,
+        AnalysisRequest request,
+        string? format)
+    {
+        try
+        {
+            var summary = pipeline.Run(request);
+            var report = reportService.Generate(summary);
+
+            return format switch
+            {
+                "html" => Results.Text(report.Html, "text/html; charset=utf-8"),
+                "json" => Results.Text(report.Json, "application/json; charset=utf-8"),
+                _ => Results.File(report.Pdf, "application/pdf")
+            };
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException)
         {

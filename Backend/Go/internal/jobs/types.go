@@ -13,6 +13,7 @@ import (
 type Status string
 
 const (
+	StatusDraft            Status = "draft"
 	StatusValidating       Status = "validating"
 	StatusRunning          Status = "running"
 	StatusComplete         Status = "complete"
@@ -31,8 +32,8 @@ type Request struct {
 }
 
 // Bundle is the cached result of running a job's request against the
-// upstream C# API. ChangesJSON and ReportPDF stay nil for a polygon-only
-// job, since C# only exposes /changes and /reports by aoi_id.
+// upstream C# API. All three fields are populated for both aoiId and
+// custom-polygon jobs, since the upstream request-based routes support both.
 type Bundle struct {
 	SummaryJSON json.RawMessage `json:"summaryJson,omitempty"`
 	ChangesJSON json.RawMessage `json:"changesJson,omitempty"`

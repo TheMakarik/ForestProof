@@ -21,6 +21,7 @@ import (
 type CreateAnalysisRequest struct {
 	AoiID          string
 	PolygonGeoJSON string
+	MethodProfile  string
 	StartYear      int
 	EndYear        int
 }
@@ -55,8 +56,19 @@ func NewClient(baseURL string, httpClient *http.Client) *Client {
 type createAnalysisBody struct {
 	AoiID          string `json:"aoiId,omitempty"`
 	PolygonGeoJSON string `json:"polygonGeoJson,omitempty"`
+	MethodProfile  string `json:"methodProfile,omitempty"`
 	StartYear      int    `json:"startYear"`
 	EndYear        int    `json:"endYear"`
+}
+
+// reportRequestBody mirrors C#'s POST /api/v1/analyses/reports body. Unlike
+// createAnalysisBody it carries the requested output format.
+type reportRequestBody struct {
+	AoiID          string `json:"aoiId,omitempty"`
+	PolygonGeoJSON string `json:"polygonGeoJson,omitempty"`
+	StartYear      int    `json:"startYear"`
+	EndYear        int    `json:"endYear"`
+	Format         string `json:"format,omitempty"`
 }
 
 type summaryStatusOnly struct {
@@ -70,6 +82,7 @@ func (c *Client) CreateAnalysis(ctx context.Context, req CreateAnalysisRequest) 
 	payload, err := json.Marshal(createAnalysisBody{
 		AoiID:          req.AoiID,
 		PolygonGeoJSON: req.PolygonGeoJSON,
+		MethodProfile:  req.MethodProfile,
 		StartYear:      req.StartYear,
 		EndYear:        req.EndYear,
 	})
@@ -88,6 +101,65 @@ func (c *Client) CreateAnalysis(ctx context.Context, req CreateAnalysisRequest) 
 	}
 
 	return json.RawMessage(body), parsed.Status, nil
+}
+
+// GetChangesForRequest calls POST /api/v1/analyses/changes with the same
+// request body shape as CreateAnalysis, so change detection works for both
+// an aoiId and a custom polygon. It returns the raw GeoJSON
+// FeatureCollection body.
+func (c *Client) GetChangesForRequest(ctx context.Context, req CreateAnalysisRequest) (json.RawMessage, error) {
+	payload, err := json.Marshal(createAnalysisBody{
+		AoiID:          req.AoiID,
+		PolygonGeoJSON: req.PolygonGeoJSON,
+		MethodProfile:  req.MethodProfile,
+		StartYear:      req.StartYear,
+		EndYear:        req.EndYear,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("upstream: encode changes body: %w", err)
+	}
+
+	body, err := c.doJSON(ctx, http.MethodPost, "/api/v1/analyses/changes", bytes.NewReader(payload), nil)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(body), nil
+}
+
+// GenerateReportForRequest calls POST /api/v1/analyses/reports with the
+// given output format (pdf, html or json) and returns the raw response
+// bytes, so reports work for both an aoiId and a custom polygon.
+func (c *Client) GenerateReportForRequest(ctx context.Context, req CreateAnalysisRequest, format string) ([]byte, error) {
+	payload, err := json.Marshal(reportRequestBody{
+		AoiID:          req.AoiID,
+		PolygonGeoJSON: req.PolygonGeoJSON,
+		StartYear:      req.StartYear,
+		EndYear:        req.EndYear,
+		Format:         format,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("upstream: encode report body: %w", err)
+	}
+
+	return c.doJSON(ctx, http.MethodPost, "/api/v1/analyses/reports", bytes.NewReader(payload), nil)
+}
+
+// GetSensitivity calls GET /api/v1/experiments/sensitivity and returns the
+// raw JSON body.
+func (c *Client) GetSensitivity(ctx context.Context, aoiID string, startYear, endYear int) (json.RawMessage, error) {
+	query := url.Values{
+		"startYear": {strconv.Itoa(startYear)},
+		"endYear":   {strconv.Itoa(endYear)},
+	}
+	if aoiID != "" {
+		query.Set("aoiId", aoiID)
+	}
+
+	body, err := c.doJSON(ctx, http.MethodGet, "/api/v1/experiments/sensitivity?"+query.Encode(), nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(body), nil
 }
 
 // GetChanges calls GET /api/v1/analyses/{aoiId}/changes and returns the raw

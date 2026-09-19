@@ -38,7 +38,7 @@ func (s *stubUpstream) CreateAnalysis(ctx context.Context, req upstream.CreateAn
 	return json.RawMessage(`{"status":"` + s.createAnalysisStatus + `"}`), s.createAnalysisStatus, nil
 }
 
-func (s *stubUpstream) GetChanges(ctx context.Context, aoiID string, startYear, endYear int) (json.RawMessage, error) {
+func (s *stubUpstream) GetChangesForRequest(ctx context.Context, req upstream.CreateAnalysisRequest) (json.RawMessage, error) {
 	atomic.AddInt32(&s.changesCalls, 1)
 	if s.getChangesErr != nil {
 		return nil, s.getChangesErr
@@ -46,7 +46,7 @@ func (s *stubUpstream) GetChanges(ctx context.Context, aoiID string, startYear, 
 	return json.RawMessage(`{"type":"FeatureCollection","features":[]}`), nil
 }
 
-func (s *stubUpstream) GenerateReport(ctx context.Context, aoiID string, startYear, endYear int) ([]byte, error) {
+func (s *stubUpstream) GenerateReportForRequest(ctx context.Context, req upstream.CreateAnalysisRequest, format string) ([]byte, error) {
 	atomic.AddInt32(&s.reportCalls, 1)
 	if s.generateReportErr != nil {
 		return nil, s.generateReportErr
@@ -140,7 +140,7 @@ func TestExecutorTimeoutYieldsFailed(t *testing.T) {
 	}
 }
 
-func TestExecutorPolygonOnlySkipsChangesAndReport(t *testing.T) {
+func TestExecutorPolygonJobAlsoFetchesChangesAndReport(t *testing.T) {
 	up := &stubUpstream{createAnalysisStatus: "Complete"}
 	exec, store := newTestExecutor(t, up)
 
@@ -154,11 +154,11 @@ func TestExecutorPolygonOnlySkipsChangesAndReport(t *testing.T) {
 	if got.Progress != 100 {
 		t.Errorf("Progress = %d, want 100", got.Progress)
 	}
-	if up.changesCalls != 0 || up.reportCalls != 0 {
-		t.Errorf("changesCalls=%d reportCalls=%d, want 0 and 0 for a polygon-only job", up.changesCalls, up.reportCalls)
+	if up.changesCalls != 1 || up.reportCalls != 1 {
+		t.Errorf("changesCalls=%d reportCalls=%d, want 1 and 1 for a polygon job", up.changesCalls, up.reportCalls)
 	}
-	if len(got.Warnings) == 0 {
-		t.Error("Warnings empty, want a warning explaining changes/report are unavailable")
+	if got.Bundle == nil || got.Bundle.ChangesJSON == nil || !got.HasReport {
+		t.Errorf("polygon job bundle incomplete: %+v", got.Bundle)
 	}
 }
 

@@ -131,6 +131,7 @@ public sealed class AnalysisPipeline(
             var gfc = rasterService.ReadGfc(part.AoiId);
             var partZones = changeZoneDetector.Detect(
                 BuildChangePixels(
+                    part.AoiId,
                     part.PixelAreas.Pixels,
                     windows[request.StartYear],
                     windows[request.EndYear],
@@ -381,7 +382,8 @@ public sealed class AnalysisPipeline(
         return samples;
     }
 
-    private static IReadOnlyList<ChangePixel> BuildChangePixels(
+    private IReadOnlyList<ChangePixel> BuildChangePixels(
+        string aoiId,
         IReadOnlyList<PixelIntersection> pixels,
         BiomassWindow startWindow,
         BiomassWindow endWindow,
@@ -402,13 +404,19 @@ public sealed class AnalysisPipeline(
             if (endWindow.Biomass[index] is not { } endBiomass)
                 continue;
 
+            var longitude = startWindow.Grid.OriginLongitude +
+                (pixel.Column + 0.5) * startWindow.Grid.PixelWidthDegrees;
+            var latitude = startWindow.Grid.OriginLatitude -
+                (pixel.Row + 0.5) * startWindow.Grid.PixelHeightDegrees;
+
             changePixels.Add(new ChangePixel
             {
                 Row = pixel.Row,
                 Column = pixel.Column,
                 AreaHectares = pixel.AreaHectares,
                 BiomassChange = endBiomass - startBiomass,
-                HasConfirmation = GfcSampler.HasLoss(startWindow.Grid, pixel.Row, pixel.Column, gfc)
+                HasConfirmation = GfcSampler.HasLoss(startWindow.Grid, pixel.Row, pixel.Column, gfc) ||
+                    rasterService.SampleModisBurnDate(aoiId, longitude, latitude) is > 0
             });
         }
 
