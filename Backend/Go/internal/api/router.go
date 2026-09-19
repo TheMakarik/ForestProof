@@ -61,6 +61,7 @@ func NewRouter(deps Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/analyses/{id}/layers", deps.handleListLayers)
 	mux.HandleFunc("GET /api/v1/analyses/{id}/layers/{layer}", deps.handleGetLayer)
 	mux.HandleFunc("POST /api/v1/analyses/{id}/reports", deps.handleGetReport)
+	mux.HandleFunc("GET /api/v1/analyses/{id}/yearly.csv", deps.handleGetYearlyCsv)
 
 	mux.HandleFunc("GET /api/v1/sources", deps.handleGetSources)
 	mux.HandleFunc("GET /api/v1/areas", deps.handleGetAreas)

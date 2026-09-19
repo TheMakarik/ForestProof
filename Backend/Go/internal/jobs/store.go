@@ -25,9 +25,9 @@ type Store struct {
 
 // NewStore creates cacheDir if it doesn't exist and rebuilds its in-memory
 // index from any *.json files already there. A job restored mid-flight
-// (status validating/running — meaning the previous process died before it
-// finished) is rewritten to failed, so it never permanently blocks
-// idempotent dedup for its hash.
+// (status draft/validating/running — meaning the previous process died
+// before it finished) is rewritten to failed, so it never permanently
+// blocks idempotent dedup for its hash.
 func NewStore(cacheDir string) (*Store, error) {
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return nil, fmt.Errorf("jobs: create cache dir %s: %w", cacheDir, err)
@@ -52,7 +52,7 @@ func NewStore(cacheDir string) (*Store, error) {
 		if err != nil {
 			continue // a corrupt/partial cache file shouldn't block startup
 		}
-		if job.Status == StatusValidating || job.Status == StatusRunning {
+		if job.Status == StatusDraft || job.Status == StatusValidating || job.Status == StatusRunning {
 			job.Status = StatusFailed
 			job.ErrorMessage = "interrupted by process restart"
 			job.UpdatedAt = time.Now()
@@ -89,14 +89,15 @@ func (s *Store) FindByHash(hash string) (Job, bool) {
 	return copyJob(s.byID[id]), true
 }
 
-// Create registers a new job in state "validating" and persists it.
+// Create registers a new job in state "draft" and persists it. The executor
+// promotes it to "validating" and then "running" once it picks the job up.
 func (s *Store) Create(req Request, hash string) Job {
 	now := time.Now()
 	job := &Job{
 		ID:        newJobID(),
 		InputHash: hash,
-		Status:    StatusValidating,
-		Phase:     "validating",
+		Status:    StatusDraft,
+		Phase:     "draft",
 		Request:   req,
 		CreatedAt: now,
 		UpdatedAt: now,

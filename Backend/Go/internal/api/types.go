@@ -31,14 +31,16 @@ type createAnalysisResponse struct {
 
 // statusResponse is returned by GET .../status.
 type statusResponse struct {
-	ID           string    `json:"id"`
-	Status       string    `json:"status"`
-	Phase        string    `json:"phase"`
-	Progress     int       `json:"progress"`
-	ErrorMessage string    `json:"errorMessage,omitempty"`
-	Warnings     []string  `json:"warnings,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID            string    `json:"id"`
+	Status        string    `json:"status"`
+	Phase         string    `json:"phase"`
+	Progress      int       `json:"progress"`
+	ErrorMessage  string    `json:"errorMessage,omitempty"`
+	Warnings      []string  `json:"warnings,omitempty"`
+	MethodVersion string    `json:"methodVersion,omitempty"`
+	DataVersion   string    `json:"dataVersion,omitempty"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
 // layersListResponse is returned by GET .../layers.

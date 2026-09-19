@@ -127,7 +127,8 @@ func (d Deps) handleGetStatus(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	WriteJSON(w, http.StatusOK, statusResponse{
+
+	resp := statusResponse{
 		ID:           job.ID,
 		Status:       string(job.Status),
 		Phase:        job.Phase,
@@ -136,7 +137,44 @@ func (d Deps) handleGetStatus(w http.ResponseWriter, r *http.Request) {
 		Warnings:     job.Warnings,
 		CreatedAt:    job.CreatedAt,
 		UpdatedAt:    job.UpdatedAt,
-	})
+	}
+
+	if job.Bundle != nil && len(job.Bundle.SummaryJSON) > 0 {
+		var meta struct {
+			MethodVersion string `json:"methodVersion"`
+			DataVersion   string `json:"dataVersion"`
+		}
+		if err := json.Unmarshal(job.Bundle.SummaryJSON, &meta); err == nil {
+			resp.MethodVersion = meta.MethodVersion
+			resp.DataVersion = meta.DataVersion
+		}
+	}
+
+	WriteJSON(w, http.StatusOK, resp)
+}
+
+// handleGetYearlyCsv proxies GET /api/v1/analyses/{id}/yearly.csv to the C#
+// backend's yearly-dynamics CSV export. C# only supports this by aoiId, so
+// custom-polygon jobs get a 404.
+func (d Deps) handleGetYearlyCsv(w http.ResponseWriter, r *http.Request) {
+	job, ok := d.requireJob(w, r)
+	if !ok {
+		return
+	}
+	if job.Request.AoiID == "" {
+		WriteError(w, http.StatusNotFound, ErrNotFound, "yearly.csv requires an aoi_id; the C# backend supports yearly dynamics only by aoiId")
+		return
+	}
+
+	data, err := d.Upstream.GetYearlyCsv(r.Context(), job.Request.AoiID, job.Request.StartYear, job.Request.EndYear)
+	if err != nil {
+		writeUpstreamError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"yearly-%s.csv\"", job.Request.AoiID))
+	w.Write(data)
 }
 
 func (d Deps) handleGetSummary(w http.ResponseWriter, r *http.Request) {

@@ -8,6 +8,7 @@ using ForestProof.Backend.Domain.Enums;
 using ForestProof.Backend.Domain.Report;
 using ForestProof.Backend.Domain.Units;
 using ForestProof.Backend.Options;
+using ForestProof.Backend.Services.Data;
 using ForestProof.Backend.Services.Report.Interfaces;
 using Microsoft.Extensions.Options;
 using QuestPDF.Fluent;
@@ -27,6 +28,8 @@ public sealed class ReportService(IOptions<DataOptions> options) : IReportServic
     /// </summary>
     public const string MethodVersion = "1.0";
 
+    private const string SourcesFileName = "sources.csv";
+
     private static readonly CultureInfo Culture = CultureInfo.GetCultureInfo("ru-RU");
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -36,6 +39,13 @@ public sealed class ReportService(IOptions<DataOptions> options) : IReportServic
     };
 
     private readonly string _outputDirectoryName = options.Value.ReportOutputDirectoryName;
+
+    private sealed record SourceLicense(
+        string SourceId,
+        string Product,
+        string Version,
+        string LicenseUrl,
+        string RequiredAttribution);
 
     static ReportService()
     {
@@ -48,13 +58,14 @@ public sealed class ReportService(IOptions<DataOptions> options) : IReportServic
         ArgumentNullException.ThrowIfNull(summary);
 
         var generatedAt = DateTime.UtcNow;
+        var licenses = ReadSourceLicenses();
 
         return new ReportResult
         {
-            Html = BuildHtml(summary, generatedAt),
+            Html = BuildHtml(summary, generatedAt, licenses),
             Json = JsonSerializer.Serialize(summary, JsonOptions),
             ManifestJson = BuildManifest(summary, generatedAt),
-            Pdf = BuildPdf(summary, generatedAt)
+            Pdf = BuildPdf(summary, generatedAt, licenses)
         };
     }
 
@@ -93,7 +104,7 @@ public sealed class ReportService(IOptions<DataOptions> options) : IReportServic
         return JsonSerializer.Serialize(manifest, JsonOptions);
     }
 
-    private static string BuildHtml(AnalysisSummary summary, DateTime generatedAt)
+    private static string BuildHtml(AnalysisSummary summary, DateTime generatedAt, IReadOnlyList<SourceLicense> licenses)
     {
         var first = summary.YearlySeries.Count > 0 ? summary.YearlySeries[0] : null;
         var last = summary.YearlySeries.Count > 0 ? summary.YearlySeries[^1] : null;
@@ -157,6 +168,19 @@ public sealed class ReportService(IOptions<DataOptions> options) : IReportServic
         }
 
         builder.AppendLine("</table>");
+
+        builder.AppendLine("<h2>Годовая динамика</h2>");
+        builder.AppendLine("<table>");
+        builder.AppendLine("<tr><th>Год</th><th>Cₜ, т C</th><th>c̄ₜ, т C/га</th><th>coverage</th></tr>");
+        foreach (var year in summary.YearlySeries)
+        {
+            builder.AppendLine(
+                $"<tr><td>{year.Year}</td><td>{Format(year.TotalCarbon)}</td>" +
+                $"<td>{Format(year.MeanCarbonPerHectare)}</td><td>{Format(year.Coverage)}</td></tr>");
+        }
+
+        builder.AppendLine("</table>");
+        builder.AppendLine(BuildYearlyChartSvg(summary.YearlySeries));
 
         builder.AppendLine("<h2>Базовая линия и потенциальные единицы</h2>");
         builder.AppendLine("<table>");
@@ -229,6 +253,22 @@ public sealed class ReportService(IOptions<DataOptions> options) : IReportServic
                 ? "<p>Годы сцен: —</p>"
                 : $"<p>Годы сцен: {string.Join(", ", sceneYears)}</p>");
 
+        if (licenses.Count > 0)
+        {
+            builder.AppendLine("<h2>Источники и лицензии</h2>");
+            builder.AppendLine("<table>");
+            builder.AppendLine(
+                "<tr><th>source_id</th><th>product</th><th>license_url</th><th>required_attribution</th></tr>");
+            foreach (var license in licenses)
+            {
+                builder.AppendLine(
+                    $"<tr><td>{Escape(license.SourceId)}</td><td>{Escape(license.Product)}</td>" +
+                    $"<td>{Escape(license.LicenseUrl)}</td><td>{Escape(license.RequiredAttribution)}</td></tr>");
+            }
+
+            builder.AppendLine("</table>");
+        }
+
         builder.AppendLine("<h2>Ограничения</h2>");
         builder.AppendLine("<ul>");
         builder.AppendLine("<li>Диапазон L–U является сценарным, а не доверительным интервалом.</li>");
@@ -257,7 +297,7 @@ public sealed class ReportService(IOptions<DataOptions> options) : IReportServic
         return builder.ToString();
     }
 
-    private static byte[] BuildPdf(AnalysisSummary summary, DateTime generatedAt)
+    private static byte[] BuildPdf(AnalysisSummary summary, DateTime generatedAt, IReadOnlyList<SourceLicense> licenses)
     {
         try
         {
@@ -277,10 +317,10 @@ public sealed class ReportService(IOptions<DataOptions> options) : IReportServic
                     page.Content().PaddingVertical(10).Column(column =>
                     {
                         column.Spacing(6);
-                        column.Item().Text($"Area: {summary.AoiId}");
-                        column.Item().Text($"Period: {summary.StartYear}-{summary.EndYear}");
-                        column.Item().Text($"Methodology: v{MethodVersion}");
-                        column.Item().Text($"Data version: {summary.DataVersion}; Run id: {summary.RunId}");
+                        column.Item().Text($"Площадь: {summary.AoiId}");
+                        column.Item().Text($"Период: {summary.StartYear}-{summary.EndYear}");
+                        column.Item().Text($"Методика: v{MethodVersion}");
+                        column.Item().Text($"Версия данных: {summary.DataVersion}; Идентификатор расчёта: {summary.RunId}");
                         column.Item().Text($"Generated: {generatedAt.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} UTC");
                         column.Item().Text($"Polygon area: {Invariant(summary.PolygonAreaHectares)} ha");
                         column.Item().Text($"Delta C: {Invariant(summary.Change.DeltaCarbon)} t C");
@@ -290,10 +330,21 @@ public sealed class ReportService(IOptions<DataOptions> options) : IReportServic
                         column.Item().Text($"Q: {UnitsText(summary.Units)}");
                         column.Item().Text($"Unit status: {summary.Units.Status}");
 
-                        column.Item().PaddingTop(8).Text("Limitations").SemiBold();
+                        column.Item().PaddingTop(8).Text("Ограничения").SemiBold();
                         column.Item().Text(
                             "L-U is a scenario range, not a confidence interval. GFC does not identify the cause. " +
                             "MODIS is a burn signal only. Units are not certified.");
+
+                        if (licenses.Count > 0)
+                        {
+                            column.Item().PaddingTop(8).Text("Источники и лицензии").SemiBold();
+                            foreach (var license in licenses)
+                            {
+                                column.Item().Text(
+                                    $"{license.SourceId} — {license.Product} — {license.LicenseUrl} — " +
+                                    license.RequiredAttribution);
+                            }
+                        }
                     });
 
                     page.Footer().AlignCenter().Text(text =>
@@ -308,6 +359,61 @@ public sealed class ReportService(IOptions<DataOptions> options) : IReportServic
         {
             return [];
         }
+    }
+
+    private IReadOnlyList<SourceLicense> ReadSourceLicenses()
+    {
+        var path = Path.Join(options.Value.DataRoot, SourcesFileName);
+        if (!File.Exists(path))
+            return Array.Empty<SourceLicense>();
+
+        var document = new CsvDocument(File.ReadAllText(path));
+        return document.Rows
+            .Select(row => new SourceLicense(
+                document.GetString(row, "source_id"),
+                document.GetString(row, "product"),
+                document.GetString(row, "version"),
+                document.GetString(row, "license_url"),
+                document.GetString(row, "required_attribution")))
+            .ToArray();
+    }
+
+    private static string BuildYearlyChartSvg(IReadOnlyList<YearlyCarbonStock> series)
+    {
+        if (series.Count == 0)
+            return string.Empty;
+
+        const int width = 640;
+        const int height = 220;
+        const int padding = 32;
+
+        var min = series.Min(item => item.TotalCarbon);
+        var max = series.Max(item => item.TotalCarbon);
+        var span = max - min;
+
+        var points = new List<string>(series.Count);
+        for (var index = 0; index < series.Count; index++)
+        {
+            var x = series.Count == 1
+                ? width / 2d
+                : padding + index * (width - 2d * padding) / (series.Count - 1);
+            var y = span == 0
+                ? height / 2d
+                : height - padding - (series[index].TotalCarbon - min) / span * (height - 2d * padding);
+            points.Add(
+                $"{x.ToString("0.##", CultureInfo.InvariantCulture)}," +
+                $"{y.ToString("0.##", CultureInfo.InvariantCulture)}");
+        }
+
+        var builder = new StringBuilder();
+        builder.AppendLine(
+            $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" " +
+            $"viewBox=\"0 0 {width} {height}\">");
+        builder.AppendLine(
+            $"<polyline fill=\"none\" stroke=\"#2b6cb0\" stroke-width=\"2\" " +
+            $"points=\"{string.Join(' ', points)}\"/>");
+        builder.AppendLine("</svg>");
+        return builder.ToString();
     }
 
     private static IReadOnlyList<EvidenceType> EvidenceTypes(AnalysisSummary summary) =>

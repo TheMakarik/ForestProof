@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://127.0.0.1:5410/"
+      "url": "http://127.0.0.1:5420/"
     }
   ],
   "paths": {
@@ -118,6 +118,54 @@
       }
     },
     "/api/v1/analyses/{aoiId}/summary": {
+      "get": {
+        "tags": [
+          "ForestProof.Backend"
+        ],
+        "parameters": [
+          {
+            "name": "aoiId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "startYear",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "endYear",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/analyses/{aoiId}/manifest": {
       "get": {
         "tags": [
           "ForestProof.Backend"

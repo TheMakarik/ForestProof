@@ -13,10 +13,14 @@ public sealed class SentinelSceneSelector(IOptions<DataOptions> options) : ISent
 {
     private const string ReflectanceSuffix = "_reflectance.tif";
     private const string SclSuffix = "_SCL.tif";
+    private const string ScenesCsvFileName = "scenes.csv";
     private const int SummerMonth = 7;
     private const int SummerDay = 15;
+    private const int SummerFirstMonth = 6;
+    private const int SummerLastMonth = 8;
 
     private readonly DataOptions _options = options.Value;
+    private readonly ISceneCatalogReader _sceneCatalogReader = new SceneCatalogReader();
 
     /// <inheritdoc />
     public SentinelScenePair? SelectPair(string aoiId, int startYear, int endYear)
@@ -25,22 +29,21 @@ public sealed class SentinelSceneSelector(IOptions<DataOptions> options) : ISent
         if (!Directory.Exists(directory))
             return null;
 
+        var metrics = ReadSceneMetrics(aoiId);
+
         var scenes = Directory
             .GetFiles(directory, "*" + ReflectanceSuffix)
             .Select(file => Path.GetFileName(file))
             .Select(file => (File: file, Date: ParseDate(file)))
             .Where(scene => scene.Date.HasValue)
-            .Select(scene => (scene.File, Date: scene.Date!.Value))
+            .Select(scene => ToCandidate(scene.File, scene.Date!.Value, metrics))
             .ToArray();
 
         if (scenes.Length == 0)
             return null;
 
-        var targetStart = new DateOnly(startYear, SummerMonth, SummerDay);
-        var targetEnd = new DateOnly(endYear, SummerMonth, SummerDay);
-
-        var before = scenes.OrderBy(scene => Math.Abs(scene.Date.DayNumber - targetStart.DayNumber)).First();
-        var after = scenes.OrderBy(scene => Math.Abs(scene.Date.DayNumber - targetEnd.DayNumber)).First();
+        var before = SelectScene(scenes, startYear);
+        var after = SelectScene(scenes, endYear);
         if (before.File == after.File)
             return null;
 
@@ -53,6 +56,55 @@ public sealed class SentinelSceneSelector(IOptions<DataOptions> options) : ISent
             AfterSclFileName = Path.Join(_options.SentinelDirectoryName, ToSclFileName(after.File)),
             AfterYear = after.Date.Year
         };
+    }
+
+    private IReadOnlyDictionary<string, SceneCatalogEntry> ReadSceneMetrics(string aoiId)
+    {
+        var scenesCsvPath = Path.Join(_options.DataRoot, ScenesCsvFileName);
+        return _sceneCatalogReader
+            .Read(scenesCsvPath, aoiId)
+            .GroupBy(entry => entry.ItemId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+    }
+
+    private static SceneCandidate ToCandidate(
+        string file,
+        DateOnly date,
+        IReadOnlyDictionary<string, SceneCatalogEntry> metrics)
+    {
+        var itemId = file.EndsWith(ReflectanceSuffix, StringComparison.Ordinal)
+            ? file[..^ReflectanceSuffix.Length]
+            : file;
+
+        return metrics.TryGetValue(itemId, out var entry)
+            ? new SceneCandidate(file, date, entry.ValidSclFraction, entry.CloudPercent)
+            : new SceneCandidate(file, date, null, null);
+    }
+
+    private static SceneCandidate SelectScene(IReadOnlyList<SceneCandidate> scenes, int year)
+    {
+        var target = new DateOnly(year, SummerMonth, SummerDay);
+
+        var summerCandidates = scenes
+            .Where(scene =>
+                scene.Date.Year == year &&
+                scene.Date.Month >= SummerFirstMonth &&
+                scene.Date.Month <= SummerLastMonth &&
+                scene.ValidSclFraction.HasValue)
+            .ToArray();
+
+        if (summerCandidates.Length > 0)
+        {
+            return summerCandidates
+                .OrderByDescending(scene => scene.ValidSclFraction!.Value)
+                .ThenBy(scene => scene.CloudPercent ?? double.MaxValue)
+                .ThenBy(scene => Math.Abs(scene.Date.DayNumber - target.DayNumber))
+                .First();
+        }
+
+        return scenes
+            .OrderBy(scene => Math.Abs(scene.Date.DayNumber - target.DayNumber))
+            .First();
     }
 
     private static DateOnly? ParseDate(string fileName)
@@ -71,4 +123,10 @@ public sealed class SentinelSceneSelector(IOptions<DataOptions> options) : ISent
 
     private static string ToSclFileName(string reflectanceFileName) =>
         reflectanceFileName.Replace(ReflectanceSuffix, SclSuffix);
+
+    private readonly record struct SceneCandidate(
+        string File,
+        DateOnly Date,
+        double? ValidSclFraction,
+        double? CloudPercent);
 }

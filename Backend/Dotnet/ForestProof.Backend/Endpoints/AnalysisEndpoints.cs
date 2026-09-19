@@ -121,6 +121,31 @@ public static class AnalysisEndpoints
                 EndYear = endYear
             }));
 
+        group.MapGet("/analyses/{aoiId}/manifest", (
+            string aoiId,
+            int startYear,
+            int endYear,
+            IAnalysisPipeline pipeline,
+            IReportService reportService) =>
+        {
+            try
+            {
+                var summary = pipeline.Run(new AnalysisRequest
+                {
+                    AoiId = aoiId,
+                    StartYear = startYear,
+                    EndYear = endYear
+                });
+
+                var report = reportService.Generate(summary);
+                return Results.Text(report.ManifestJson, "application/json; charset=utf-8");
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException)
+            {
+                return Results.BadRequest(new ApiError { Message = exception.Message });
+            }
+        });
+
         group.MapPost("/analyses/{aoiId}/reports", async (
             string aoiId,
             int startYear,
@@ -435,6 +460,7 @@ public static class AnalysisEndpoints
             {
                 "html" => Results.Text(report.Html, "text/html; charset=utf-8"),
                 "json" => Results.Text(report.Json, "application/json; charset=utf-8"),
+                "manifest" => Results.Text(report.ManifestJson, "application/json; charset=utf-8"),
                 _ => Results.File(report.Pdf, "application/pdf")
             };
         }

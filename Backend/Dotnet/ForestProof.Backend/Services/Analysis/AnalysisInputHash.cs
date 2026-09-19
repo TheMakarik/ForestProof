@@ -21,7 +21,8 @@ public static class AnalysisInputHash
             request.PolygonGeoJson ?? string.Empty,
             request.StartYear,
             request.EndYear,
-            sensitivityCoefficient);
+            sensitivityCoefficient,
+            request.UseExtendedSclClasses ? "true" : "false");
 
         var hash = System.Security.Cryptography.SHA256.HashData(
             System.Text.Encoding.UTF8.GetBytes(canonical));

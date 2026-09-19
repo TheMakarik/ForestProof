@@ -56,4 +56,8 @@ var layerMetadataByKey = map[string]layerMetadata{
 		Description: "Нормализованный разностный индекс выгорания (NBR), вычисляется по Sentinel-2.",
 		Legend:      "NBR = (B8A − B12) / (B8A + B12); безразмерный, от −1 до 1.",
 	},
+	"ndwi": {
+		Description: "Нормализованный разностный водный индекс (NDWI), вычисляется по Sentinel-2.",
+		Legend:      "NDWI = (B03 − B08) / (B03 + B08); безразмерный, от −1 до 1.",
+	},
 }

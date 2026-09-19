@@ -178,6 +178,17 @@ func (c *Client) GetChanges(ctx context.Context, aoiID string, startYear, endYea
 	return json.RawMessage(body), nil
 }
 
+// GetYearlyCsv calls GET /api/v1/analyses/{aoiId}/yearly.csv and returns the
+// raw CSV bytes. C# only supports this by aoiId, not by polygon.
+func (c *Client) GetYearlyCsv(ctx context.Context, aoiID string, startYear, endYear int) ([]byte, error) {
+	path := fmt.Sprintf("/api/v1/analyses/%s/yearly.csv", url.PathEscape(aoiID))
+	query := url.Values{
+		"startYear": {strconv.Itoa(startYear)},
+		"endYear":   {strconv.Itoa(endYear)},
+	}
+	return c.doJSON(ctx, http.MethodGet, path+"?"+query.Encode(), nil, nil)
+}
+
 // GenerateReport calls POST /api/v1/analyses/{aoiId}/reports and returns
 // the raw PDF bytes. C# only supports this by aoiId, not by polygon.
 func (c *Client) GenerateReport(ctx context.Context, aoiID string, startYear, endYear int) ([]byte, error) {

@@ -1,10 +1,10 @@
 // Package layers resolves the gateway's map-layer keys (aoi, agb_start,
 // agb_end, gfc, cci_change, modis_burn, coverage, sentinel2_before,
-// sentinel2_after, ndvi, nbr) to actual bytes on disk (or, for Sentinel-2
-// as a last resort, a STAC fallback download), each annotated with
-// provenance/description/legend metadata drawn from the local dataset
-// catalog. ndvi and nbr are computed indices with no file of their own:
-// they are listed with metadata, but ResolveLayer reports them as
+// sentinel2_after, ndvi, nbr, ndwi) to actual bytes on disk (or, for
+// Sentinel-2 as a last resort, a STAC fallback download), each annotated
+// with provenance/description/legend metadata drawn from the local dataset
+// catalog. ndvi, nbr and ndwi are computed indices with no file of their
+// own: they are listed with metadata, but ResolveLayer reports them as
 // non-servable instead of failing with a server error.
 package layers
 
@@ -62,7 +62,7 @@ type Deps struct {
 
 var allLayerKeys = []string{
 	"aoi", "agb_start", "agb_end", "gfc", "cci_change", "modis_burn",
-	"coverage", "sentinel2_before", "sentinel2_after", "ndvi", "nbr",
+	"coverage", "sentinel2_before", "sentinel2_after", "ndvi", "nbr", "ndwi",
 }
 
 // ListLayers reports, for every known layer key, whether it can currently
@@ -83,10 +83,11 @@ func ListLayers(deps Deps, aoiID string, startYear, endYear int) []LayerInfo {
 			continue
 		}
 
-		// ndvi/nbr are computed from Sentinel-2 and have no raster of their
-		// own; they are still listed (with description/legend) so clients can
-		// discover them, but flagged unavailable with an explanatory reason.
-		if key == "ndvi" || key == "nbr" {
+		// ndvi/nbr/ndwi are computed from Sentinel-2 and have no raster of
+		// their own; they are still listed (with description/legend) so
+		// clients can discover them, but flagged unavailable with an
+		// explanatory reason.
+		if key == "ndvi" || key == "nbr" || key == "ndwi" {
 			infos = append(infos, listSpectralIndexInfo(deps, aoiID, startYear, endYear, key))
 			continue
 		}
@@ -176,7 +177,7 @@ func ResolveLayer(ctx context.Context, deps Deps, aoiID string, startYear, endYe
 		return resolveModisBurn(deps, aoiID)
 	case "coverage":
 		return resolveCoverage(deps, aoiID, startYear, endYear)
-	case "ndvi", "nbr":
+	case "ndvi", "nbr", "ndwi":
 		return LayerFile{}, nil, fmt.Errorf(
 			"layers: %s вычисляется по Sentinel-2, файл не предоставляется", key)
 	case "sentinel2_before":

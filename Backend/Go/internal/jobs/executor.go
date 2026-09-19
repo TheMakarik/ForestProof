@@ -62,6 +62,12 @@ func (e *Executor) Run(ctx context.Context, jobID string) {
 	}
 
 	_ = e.Store.Update(jobID, func(j *Job) {
+		j.Status = StatusValidating
+		j.Phase = "validating"
+		j.Progress = 5
+	})
+
+	_ = e.Store.Update(jobID, func(j *Job) {
 		j.Status = StatusRunning
 		j.Phase = "calling_summary"
 		j.Progress = 10
@@ -73,11 +79,22 @@ func (e *Executor) Run(ctx context.Context, jobID string) {
 		return
 	}
 
+	// Surface any upstream warnings carried in the summary. An empty (or
+	// absent) list leaves whatever the job already had untouched.
+	var summary struct {
+		Warnings []string `json:"warnings"`
+	}
+	_ = json.Unmarshal(rawSummary, &summary)
+	warnings := summary.Warnings
+
 	mappedStatus := mapUpstreamStatus(csharpStatus)
 	_ = e.Store.Update(jobID, func(j *Job) {
 		j.Bundle = &Bundle{SummaryJSON: rawSummary}
 		j.Status = mappedStatus
 		j.Progress = 40
+		if len(warnings) > 0 {
+			j.Warnings = warnings
+		}
 	})
 
 	if mappedStatus == StatusFailed {
