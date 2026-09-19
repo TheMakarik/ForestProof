@@ -1,6 +1,6 @@
 namespace ForestProof.Backend.Extensions;
 
-public static class OptionsExtensions
+public static class HostApplicationBuilderExtensions
 {
     public static IHostApplicationBuilder AddOptions<TOptions>(
         this IHostApplicationBuilder builder,

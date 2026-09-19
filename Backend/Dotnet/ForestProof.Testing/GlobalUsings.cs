@@ -1,0 +1,33 @@
+// Global using directives
+
+global using AutoFixture;
+global using FakeItEasy;
+global using FluentAssertions;
+global using Microsoft.Extensions.Options;
+global using Xunit;
+global using NetTopologySuite.Geometries;
+global using ForestProof.Backend.Domain.Analysis;
+global using ForestProof.Backend.Domain.Aoi;
+global using ForestProof.Backend.Domain.Baseline;
+global using ForestProof.Backend.Domain.Carbon;
+global using ForestProof.Backend.Domain.ChangeZones;
+global using ForestProof.Backend.Domain.Enums;
+global using ForestProof.Backend.Domain.Geometry;
+global using ForestProof.Backend.Domain.Methodology;
+global using ForestProof.Backend.Domain.Pixels;
+global using ForestProof.Backend.Domain.Raster;
+global using ForestProof.Backend.Domain.Units;
+global using ForestProof.Backend.Options;
+global using ForestProof.Backend.Services.Analysis;
+global using ForestProof.Backend.Services.Analysis.Interfaces;
+global using ForestProof.Backend.Services.Calculation;
+global using ForestProof.Backend.Services.Calculation.Interfaces;
+global using ForestProof.Backend.Services.ChangeZones;
+global using ForestProof.Backend.Services.ChangeZones.Interfaces;
+global using ForestProof.Backend.Services.Data;
+global using ForestProof.Backend.Services.Data.Interfaces;
+global using ForestProof.Backend.Services.Geometry;
+global using ForestProof.Backend.Services.Geometry.Interfaces;
+global using ForestProof.Backend.Services.Raster;
+global using ForestProof.Backend.Services.Raster.Interfaces;
+global using ForestProof.Testing.Infrastructure;
