@@ -1,20 +1,38 @@
 import ReactECharts from 'echarts-for-react'
+import { Typography } from 'antd'
 import { formatNumber } from '../constants'
 
+const { Text } = Typography
+
 export default function YearlyChart({ series = [], height = 320 }) {
+  if (!Array.isArray(series) || series.length === 0) {
+    return <Text type="secondary">Нет данных годовой динамики.</Text>
+  }
+
   const years = series.map((item) => item.year)
-  const totalCarbon = series.map((item) => Number(item.totalCarbon.toFixed(2)))
-  const meanCarbon = series.map((item) => Number(item.meanCarbonPerHectare.toFixed(3)))
-  const coverage = series.map((item) => Number((item.coverage * 100).toFixed(1)))
+  const totalCarbon = series.map((item) => Number((item.totalCarbon ?? 0).toFixed(2)))
+  const meanCarbon = series.map((item) => Number((item.meanCarbonPerHectare ?? 0).toFixed(3)))
+  const coverage = series.map((item) => Number(((item.coverage ?? 0) * 100).toFixed(1)))
 
   const option = {
-    tooltip: { trigger: 'axis' },
-    legend: { data: ['C_t, т C', 'c̄_t, т C/га', 'coverage, %'] },
-    grid: { left: 64, right: 64, top: 48, bottom: 40 },
-    xAxis: { type: 'category', data: years },
+    tooltip: {
+      trigger: 'axis',
+      valueFormatter: (value) => formatNumber(value, 2)
+    },
+    legend: { data: ['C_t, т C', 'c̄_t, т C/га', 'Покрытие, %'] },
+    grid: { left: 72, right: 104, top: 48, bottom: 40 },
+    xAxis: { type: 'category', data: years, name: 'Год' },
     yAxis: [
-      { type: 'value', name: 'т C', position: 'left' },
-      { type: 'value', name: 'т C/га', position: 'right', max: 100 }
+      { type: 'value', name: 'C_t, т C', position: 'left' },
+      { type: 'value', name: 'c̄_t, т C/га', position: 'right' },
+      {
+        type: 'value',
+        name: 'Покрытие, %',
+        position: 'right',
+        offset: 64,
+        min: 0,
+        max: 100
+      }
     ],
     series: [
       {
@@ -36,9 +54,9 @@ export default function YearlyChart({ series = [], height = 320 }) {
         itemStyle: { color: '#1565c0' }
       },
       {
-        name: 'coverage, %',
+        name: 'Покрытие, %',
         type: 'bar',
-        yAxisIndex: 1,
+        yAxisIndex: 2,
         barWidth: 14,
         data: coverage,
         itemStyle: { color: '#c8e6c9' },

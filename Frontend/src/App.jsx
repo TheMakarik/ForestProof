@@ -6,6 +6,7 @@ import CreateAnalysisPage from './pages/CreateAnalysisPage'
 import AnalysisResultPage from './pages/AnalysisResultPage'
 import ExperimentPage from './pages/ExperimentPage'
 import MapPage from './pages/MapPage'
+import ReportPage from './pages/ReportPage'
 
 export default function App() {
   return (
@@ -16,9 +17,16 @@ export default function App() {
         <Route path="analysis" element={<AnalysisResultPage />} />
         <Route path="map" element={<MapPage />} />
         <Route path="experiment" element={<ExperimentPage />} />
+        <Route path="report" element={<ReportPage />} />
         <Route
           path="*"
-          element={<Result status="404" title="404" subTitle="Страница не найдена" />}
+          element={
+            <Result
+              status="404"
+              title="404"
+              subTitle="Страница не найдена. Вернитесь на дашборд или создайте новую проверку."
+            />
+          }
         />
       </Route>
     </Routes>

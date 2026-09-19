@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { LngLatBounds, Map, NavigationControl, Popup, ScaleControl } from 'maplibre-gl'
+import { CAUSE_STATUS, formatNumber } from '../constants'
 
 const BASE_STYLE = {
   version: 8,
@@ -19,15 +20,20 @@ const BASE_STYLE = {
 
 const EMPTY = { type: 'FeatureCollection', features: [] }
 
-const toFeature = (geometry, properties) => ({ type: 'Feature', geometry, properties })
+const toFeatureCollection = (value) => {
+  if (!value) return EMPTY
+  if (value.type === 'FeatureCollection') return value
+  if (value.type === 'Feature') return { type: 'FeatureCollection', features: [value] }
+  return { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: value, properties: {} }] }
+}
 
 const boundsOf = (geometry) => {
   const coordinates = []
   const collect = (value) => {
-    if (typeof value[0] === 'number') coordinates.push(value)
-    else value.forEach(collect)
+    if (typeof value?.[0] === 'number') coordinates.push(value)
+    else if (Array.isArray(value)) value.forEach(collect)
   }
-  collect(geometry.coordinates)
+  collect(geometry?.coordinates)
   if (coordinates.length === 0) return null
   return coordinates.reduce(
     (acc, coordinate) => acc.extend(coordinate),
@@ -35,16 +41,36 @@ const boundsOf = (geometry) => {
   )
 }
 
-export default function MapView({ geometry, zones = [], visibleLayers = {}, height = 460 }) {
+const causeColor = (cause) => {
+  if (cause === 'confirmed') return CAUSE_STATUS.confirmed.color === 'error' ? '#c62828' : '#c62828'
+  if (cause === 'likely' || cause === 'probable') return '#ed6c02'
+  return '#607d8b'
+}
+
+export default function MapView({
+  geometry,
+  zones = [],
+  rasters = {},
+  visibleLayers = {},
+  height = 460,
+  onZoneClick,
+  selectedZoneId
+}) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
+  const readyRef = useRef(false)
   const dataRef = useRef({ geometry, zones })
   const layersRef = useRef(visibleLayers)
-  const applyDataRef = useRef(() => {})
-  const applyLayersRef = useRef(() => {})
+  const rastersRef = useRef(rasters)
+  const zoneClickRef = useRef(onZoneClick)
+  const selectedRef = useRef(selectedZoneId)
+  const applyRef = useRef({ data: () => {}, layers: () => {}, rasters: () => {}, selected: () => {} })
 
   dataRef.current = { geometry, zones }
   layersRef.current = visibleLayers
+  rastersRef.current = rasters
+  zoneClickRef.current = onZoneClick
+  selectedRef.current = selectedZoneId
 
   useEffect(() => {
     if (!containerRef.current) return undefined
@@ -62,25 +88,22 @@ export default function MapView({ geometry, zones = [], visibleLayers = {}, heig
     const applyData = () => {
       const { geometry: aoi, zones: currentZones } = dataRef.current
 
-      map.getSource('aoi')?.setData(
-        aoi ? { type: 'FeatureCollection', features: [toFeature(aoi, {})] } : EMPTY
-      )
-      map.getSource('coverage')?.setData(
-        aoi ? { type: 'FeatureCollection', features: [toFeature(aoi, {})] } : EMPTY
-      )
+      map.getSource('aoi')?.setData(toFeatureCollection(aoi))
       map.getSource('zones')?.setData({
         type: 'FeatureCollection',
         features: currentZones
           .filter((zone) => zone.geometry)
-          .map((zone) =>
-            toFeature(zone.geometry, {
+          .map((zone) => ({
+            type: 'Feature',
+            geometry: zone.geometry,
+            properties: {
               id: zone.id,
               area: zone.areaHectares,
               contribution: zone.contributionToDeltaCarbon,
               cause: zone.causeStatus,
               evidence: (zone.evidenceTypes ?? []).join(', ')
-            })
-          )
+            }
+          }))
       })
 
       if (aoi) {
@@ -96,13 +119,62 @@ export default function MapView({ geometry, zones = [], visibleLayers = {}, heig
       }
       setVisible('aoi-fill', visible.aoi !== false)
       setVisible('aoi-line', visible.aoi !== false)
-      setVisible('coverage-line', visible.coverage !== false)
       setVisible('zones-fill', visible.zones !== false)
       setVisible('zones-line', visible.zones !== false)
+      setVisible('zones-selected-line', visible.zones !== false)
+
+      Object.keys(rastersRef.current ?? {}).forEach((key) => {
+        setVisible(`raster-${key}-layer`, Boolean(visible[key]))
+      })
     }
 
-    applyDataRef.current = applyData
-    applyLayersRef.current = applyLayers
+    const applyRasters = () => {
+      if (!readyRef.current) return
+      const entries = Object.entries(rastersRef.current ?? {})
+      entries.forEach(([key, raster]) => {
+        if (!raster || raster.status !== 'ready' || !raster.canvas) return
+        const sourceId = `raster-${key}`
+        const layerId = `${sourceId}-layer`
+        const dataUrl = raster.canvas.toDataURL('image/png')
+
+        if (!map.getSource(sourceId)) {
+          map.addSource(sourceId, {
+            type: 'image',
+            url: dataUrl,
+            coordinates: raster.coordinates
+          })
+          const beforeId = map.getLayer('aoi-fill') ? 'aoi-fill' : undefined
+          map.addLayer(
+            {
+              id: layerId,
+              type: 'image',
+              source: sourceId,
+              paint: { 'raster-opacity': 0.85, 'raster-fade-duration': 0 }
+            },
+            beforeId
+          )
+        } else {
+          const source = map.getSource(sourceId)
+          if (typeof source.updateImage === 'function') {
+            source.updateImage({ image: raster.canvas, coordinates: raster.coordinates })
+          }
+        }
+      })
+      applyLayers()
+    }
+
+    const applySelected = () => {
+      if (!map.getLayer('zones-selected-line')) return
+      const id = selectedRef.current
+      map.setFilter('zones-selected-line', ['==', ['get', 'id'], id ?? -1])
+    }
+
+    applyRef.current = {
+      data: applyData,
+      layers: applyLayers,
+      rasters: applyRasters,
+      selected: applySelected
+    }
 
     map.on('load', () => {
       map.addSource('aoi', { type: 'geojson', data: EMPTY })
@@ -110,21 +182,13 @@ export default function MapView({ geometry, zones = [], visibleLayers = {}, heig
         id: 'aoi-fill',
         type: 'fill',
         source: 'aoi',
-        paint: { 'fill-color': '#2f7d32', 'fill-opacity': 0.18 }
+        paint: { 'fill-color': '#2f7d32', 'fill-opacity': 0.12 }
       })
       map.addLayer({
         id: 'aoi-line',
         type: 'line',
         source: 'aoi',
         paint: { 'line-color': '#1b5e20', 'line-width': 2 }
-      })
-
-      map.addSource('coverage', { type: 'geojson', data: EMPTY })
-      map.addLayer({
-        id: 'coverage-line',
-        type: 'line',
-        source: 'coverage',
-        paint: { 'line-color': '#1565c0', 'line-width': 1.5, 'line-dasharray': [2, 2] }
       })
 
       map.addSource('zones', { type: 'geojson', data: EMPTY })
@@ -137,12 +201,12 @@ export default function MapView({ geometry, zones = [], visibleLayers = {}, heig
             'match',
             ['get', 'cause'],
             'confirmed',
-            '#c62828',
+            causeColor('confirmed'),
             'likely',
-            '#ed6c02',
-            '#607d8b'
+            causeColor('likely'),
+            causeColor('undetermined')
           ],
-          'fill-opacity': 0.5
+          'fill-opacity': 0.55
         }
       })
       map.addLayer({
@@ -151,18 +215,29 @@ export default function MapView({ geometry, zones = [], visibleLayers = {}, heig
         source: 'zones',
         paint: { 'line-color': '#263238', 'line-width': 1.2 }
       })
+      map.addLayer({
+        id: 'zones-selected-line',
+        type: 'line',
+        source: 'zones',
+        filter: ['==', ['get', 'id'], -1],
+        paint: { 'line-color': '#000000', 'line-width': 3 }
+      })
 
       map.on('click', 'zones-fill', (event) => {
         const feature = event.features?.[0]
         if (!feature) return
         const properties = feature.properties ?? {}
+        const zone = (dataRef.current.zones ?? []).find(
+          (item) => String(item.id) === String(properties.id)
+        )
+        if (zone) zoneClickRef.current?.(zone)
         new Popup()
           .setLngLat(event.lngLat)
           .setHTML(
             `<strong>Зона ${properties.id}</strong><br/>` +
-              `Площадь: ${Number(properties.area).toFixed(2)} га<br/>` +
-              `Вклад в ΔC: ${Number(properties.contribution).toFixed(2)} т C<br/>` +
-              `Причина: ${properties.cause}`
+              `Площадь: ${formatNumber(Number(properties.area))} га<br/>` +
+              `Вклад в ΔC: ${formatNumber(Number(properties.contribution))} т C<br/>` +
+              `Причина: ${CAUSE_STATUS[properties.cause]?.label ?? properties.cause}`
           )
           .addTo(map)
       })
@@ -175,6 +250,9 @@ export default function MapView({ geometry, zones = [], visibleLayers = {}, heig
 
       applyData()
       applyLayers()
+      applyRasters()
+      applySelected()
+      readyRef.current = true
     })
 
     mapRef.current = map
@@ -182,12 +260,25 @@ export default function MapView({ geometry, zones = [], visibleLayers = {}, heig
   }, [])
 
   useEffect(() => {
-    if (mapRef.current?.getSource('aoi')) applyDataRef.current()
+    if (readyRef.current) applyRef.current.data()
   }, [geometry, zones])
 
   useEffect(() => {
-    applyLayersRef.current()
+    if (readyRef.current) applyRef.current.layers()
   }, [visibleLayers])
 
-  return <div ref={containerRef} style={{ height, borderRadius: 8, overflow: 'hidden' }} />
+  useEffect(() => {
+    if (readyRef.current) applyRef.current.rasters()
+  }, [rasters])
+
+  useEffect(() => {
+    if (readyRef.current) applyRef.current.selected()
+  }, [selectedZoneId])
+
+  return (
+    <div
+      ref={containerRef}
+      style={{ height, borderRadius: 8, overflow: 'hidden', background: '#dfe7e2' }}
+    />
+  )
 }

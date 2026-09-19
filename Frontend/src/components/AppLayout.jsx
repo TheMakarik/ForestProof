@@ -2,10 +2,10 @@ import { Layout, Menu, Tag, Typography } from 'antd'
 import {
   EnvironmentOutlined,
   ExperimentOutlined,
-  FundOutlined,
   PlusCircleOutlined,
   ProjectOutlined
 } from '@ant-design/icons'
+import { useQuery } from '@tanstack/react-query'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 
@@ -21,12 +21,33 @@ const items = [
 export default function AppLayout() {
   const navigate = useNavigate()
   const location = useLocation()
-  const selectedKey = items.find((item) => item.key !== '/' && location.pathname.startsWith(item.key))?.key ?? '/'
+
+  const selectedKey =
+    location.pathname === '/'
+      ? '/'
+      : items.find((item) => item.key !== '/' && location.pathname.startsWith(item.key))?.key ?? '/'
+
+  const { data: apiAvailable } = useQuery({
+    queryKey: ['health'],
+    queryFn: async () => {
+      try {
+        return await api.checkHealth()
+      } catch {
+        return false
+      }
+    },
+    refetchInterval: 30000,
+    retry: false
+  })
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-        <FundOutlined style={{ fontSize: 22, color: '#a5d6a7' }} />
+        <img
+          src="/logo.png"
+          alt="ForestProof"
+          style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover' }}
+        />
         <Typography.Title level={4} style={{ color: '#fff', margin: 0, whiteSpace: 'nowrap' }}>
           ForestProof
         </Typography.Title>
@@ -38,7 +59,9 @@ export default function AppLayout() {
           onClick={({ key }) => navigate(key)}
           style={{ flex: 1, minWidth: 0 }}
         />
-        {api.isMock && <Tag color="gold">мок-данные</Tag>}
+        <Tag color={apiAvailable ? 'green' : 'red'} style={{ marginInlineEnd: 0 }}>
+          {apiAvailable ? 'API доступен' : 'API недоступен'}
+        </Tag>
       </Header>
       <Content style={{ padding: '24px', maxWidth: 1400, width: '100%', margin: '0 auto' }}>
         <Outlet />
