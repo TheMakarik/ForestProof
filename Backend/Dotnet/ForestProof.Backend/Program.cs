@@ -37,6 +37,8 @@ app.MapOpenApi();
 
 app.MapGet("/", () => "Hello World!");
 app.MapAnalysisEndpoints();
+app.MapStatusEndpoints();
+app.MapRegistryEndpoints();
 
 app.Run();
 
