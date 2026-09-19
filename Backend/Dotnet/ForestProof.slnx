@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="ForestProof.Backend/ForestProof.Backend.csproj" />
+  <Project Path="ForestProof.Testing/ForestProof.Testing.csproj" />
+</Solution>
