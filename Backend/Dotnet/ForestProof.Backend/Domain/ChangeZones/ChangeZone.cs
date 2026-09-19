@@ -15,7 +15,8 @@ public sealed record ChangeZone
     /// <summary>
     /// Геометрия зоны в WGS 84.
     /// </summary>
-    public required Geometry Geometry { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Geometry? Geometry { get; init; }
 
     /// <summary>
     /// Площадь зоны, га.

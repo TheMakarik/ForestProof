@@ -13,7 +13,7 @@ public sealed class ChangeZoneEvidenceAnalyzerTests
             TestCalculationOptions.Create());
 
         // Act
-        var evidence = systemUnderTests.Analyze("RU_TEST_01", [CreateZone()], CreateGrid(), CreateGfc(lossYear: 5), 2019, 2024);
+        var evidence = systemUnderTests.Analyze("RU_TEST_01", [CreateZone()], CreateGrid(), CreateGfc(lossYear: 5), 2019, 2024, false);
 
         // Assert
         evidence.Should().ContainSingle();
@@ -32,7 +32,7 @@ public sealed class ChangeZoneEvidenceAnalyzerTests
             TestCalculationOptions.Create());
 
         // Act
-        var evidence = systemUnderTests.Analyze("RU_TEST_01", [CreateZone()], CreateGrid(), CreateGfc(lossYear: 0), 2019, 2024);
+        var evidence = systemUnderTests.Analyze("RU_TEST_01", [CreateZone()], CreateGrid(), CreateGfc(lossYear: 0), 2019, 2024, false);
 
         // Assert
         evidence[0].EvidenceTypes.Should().BeEmpty();
@@ -49,7 +49,7 @@ public sealed class ChangeZoneEvidenceAnalyzerTests
             TestCalculationOptions.Create());
 
         // Act
-        var evidence = systemUnderTests.Analyze("RU_TEST_01", [CreateZone(row: 100, column: 100)], CreateGrid(), CreateGfc(lossYear: 5), 2019, 2024);
+        var evidence = systemUnderTests.Analyze("RU_TEST_01", [CreateZone(row: 100, column: 100)], CreateGrid(), CreateGfc(lossYear: 5), 2019, 2024, false);
 
         // Assert
         evidence[0].EvidenceTypes.Should().BeEmpty();
@@ -58,6 +58,7 @@ public sealed class ChangeZoneEvidenceAnalyzerTests
     private static ChangeZone CreateZone(int row = 0, int column = 0) => new()
     {
         Id = 1,
+        Geometry = new GeometryFactory().CreatePoint(new Coordinate(0, 0)),
         AreaHectares = 1,
         ContributionToDeltaCarbon = 1,
         PixelCount = 1,

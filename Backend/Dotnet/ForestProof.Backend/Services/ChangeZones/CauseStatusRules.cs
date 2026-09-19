@@ -36,4 +36,19 @@ public static class CauseStatusRules
             _ => CauseStatus.Unknown
         };
     }
+
+    /// <summary>
+    /// Возвращает текст «что можно утверждать / чего нельзя» для статуса причины.
+    /// </summary>
+    /// <param name="status">Статус причины.</param>
+    /// <returns>Формулировка для интерфейса и отчёта.</returns>
+    public static string Interpretation(CauseStatus status) => status switch
+    {
+        CauseStatus.Confirmed =>
+            "Изменение подтверждено совокупностью независимых наблюдений; причина указана с ограничениями.",
+        CauseStatus.Probable =>
+            "Вероятное нарушение или восстановление; требуется дополнительное подтверждение.",
+        _ =>
+            "Причина не установлена: данных мало или сигналы конфликтуют."
+    };
 }

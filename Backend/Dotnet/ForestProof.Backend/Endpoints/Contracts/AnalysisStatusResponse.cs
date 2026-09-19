@@ -49,4 +49,14 @@ public sealed record AnalysisStatusResponse
     /// Предупреждения расчёта.
     /// </summary>
     public required IReadOnlyList<string> Warnings { get; init; }
+
+    /// <summary>
+    /// Прогресс выполнения расчёта в диапазоне от 0 до 1.
+    /// </summary>
+    public required double Progress { get; init; }
+
+    /// <summary>
+    /// Ссылка на журнал (логи) расчёта; может отсутствовать.
+    /// </summary>
+    public required string? LogReference { get; init; }
 }

@@ -83,6 +83,25 @@ public sealed class PipelineIntegrationTests
             .Contain(evidence => evidence.EvidenceTypes.Contains(EvidenceType.Sentinel2));
     }
 
+    [Fact]
+    public void Run_WhenTverControlDataset_ReturnsSummary()
+    {
+        // Arrange
+        var systemUnderTests = CreatePipeline();
+
+        // Act
+        var summary = systemUnderTests.Run(new AnalysisRequest
+        {
+            AoiId = "RU_TVER_01",
+            StartYear = 2019,
+            EndYear = 2024
+        });
+
+        // Assert
+        summary.PolygonAreaHectares.Should().BeApproximately(1750.4731, 0.01);
+        summary.YearlySeries.Should().HaveCount(6);
+    }
+
     private static AnalysisPipeline CreatePipeline()
     {
         var dataOptions = TestDataOptions.Create(Root);

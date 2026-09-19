@@ -62,14 +62,32 @@ public sealed class ReportService(IOptions<DataOptions> options) : IReportServic
     {
         var manifest = new Dictionary<string, object?>
         {
-            ["method_version"] = MethodVersion,
+            ["method_version"] = summary.MethodVersion,
+            ["data_version"] = summary.DataVersion,
+            ["run_id"] = summary.RunId,
+            ["input_hash"] = summary.InputHash,
             ["generated_at"] = generatedAt.ToString("O", CultureInfo.InvariantCulture),
             ["output_directory"] = _outputDirectoryName,
             ["aoi_id"] = summary.AoiId,
             ["start_year"] = summary.StartYear,
             ["end_year"] = summary.EndYear,
             ["warnings"] = summary.Warnings,
-            ["evidence_types"] = EvidenceTypes(summary).Select(EvidenceDisplay).ToArray()
+            ["evidence_types"] = EvidenceTypes(summary).Select(EvidenceDisplay).ToArray(),
+            ["scene_years"] = summary.ChangeZoneEvidence
+                .SelectMany(evidence => evidence.EvidenceYears)
+                .Distinct()
+                .Order()
+                .ToArray(),
+            ["source_assets"] = summary.SourceAssets
+                .Select(asset => new Dictionary<string, object?>
+                {
+                    ["aoi_id"] = asset.AoiId,
+                    ["relative_path"] = asset.RelativePath,
+                    ["version"] = asset.Version,
+                    ["retrieved_at"] = asset.RetrievedAt,
+                    ["sha256"] = asset.Sha256
+                })
+                .ToArray()
         };
 
         return JsonSerializer.Serialize(manifest, JsonOptions);
@@ -98,7 +116,8 @@ public sealed class ReportService(IOptions<DataOptions> options) : IReportServic
         builder.AppendLine("<body>");
         builder.AppendLine("<h1>Отчёт ForestProof</h1>");
         builder.AppendLine($"<p>Дата формирования: {FormatDate(generatedAt)}</p>");
-        builder.AppendLine($"<p>method_version = {MethodVersion}</p>");
+        builder.AppendLine($"<p>method_version = {summary.MethodVersion}</p>");
+        builder.AppendLine($"<p>data_version = {Escape(summary.DataVersion)}; run_id = {Escape(summary.RunId)}</p>");
 
         builder.AppendLine("<h2>Территория и период</h2>");
         builder.AppendLine("<table>");

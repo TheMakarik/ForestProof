@@ -80,6 +80,8 @@ public sealed class ReportServiceTests
         MethodVersion = "1.0",
         DataVersion = "CCI-Biomass-v7.0",
         CreatedAt = DateTimeOffset.UtcNow,
+        InputHash = "test-input-hash",
+        SourceAssets = [],
         Status = RunStatus.Complete,
         AoiId = "AOI-TEST",
         StartYear = 2020,
@@ -180,7 +182,8 @@ public sealed class ReportServiceTests
                 EvidenceTypes = [EvidenceType.Gfc, EvidenceType.Sentinel2],
                 GfcLossYears = [2021],
                 EvidenceYears = [2021],
-                CauseStatus = CauseStatus.Confirmed
+                CauseStatus = CauseStatus.Confirmed,
+                Interpretation = "Изменение подтверждено совокупностью независимых наблюдений; причина указана с ограничениями."
             }
         ],
         CciChangeMeanTonnesPerHectare = 1.5,

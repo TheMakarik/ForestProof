@@ -33,10 +33,11 @@ public sealed class ChangeZoneEvidenceAnalyzer(
         RasterGrid agbGrid,
         GfcWindow gfc,
         int startYear,
-        int endYear)
+        int endYear,
+        bool useExtendedSclClasses)
     {
         var scenePair = sceneSelector.SelectPair(aoiId, startYear, endYear);
-        var dnbr = ComputeDnbr(aoiId, scenePair);
+        var dnbr = ComputeDnbr(aoiId, scenePair, useExtendedSclClasses);
 
         var results = new List<ChangeZoneEvidence>();
 
@@ -74,32 +75,44 @@ public sealed class ChangeZoneEvidenceAnalyzer(
                 evidenceYears.Add(scenePair.AfterYear);
             }
 
+            var status = CauseStatusRules.Evaluate(evidenceTypes, evidenceYears, startYear, endYear);
+
             results.Add(new ChangeZoneEvidence
             {
                 ZoneId = zone.Id,
                 EvidenceTypes = evidenceTypes,
                 GfcLossYears = lossYears,
                 EvidenceYears = evidenceYears.Distinct().Order().ToArray(),
-                CauseStatus = CauseStatusRules.Evaluate(evidenceTypes, evidenceYears, startYear, endYear)
+                CauseStatus = status,
+                Interpretation = CauseStatusRules.Interpretation(status)
             });
         }
 
         return results;
     }
 
-    private (IReadOnlyList<double?> Values, RasterGrid Grid)? ComputeDnbr(string aoiId, SentinelScenePair? scenePair)
+    private (IReadOnlyList<double?> Values, RasterGrid Grid)? ComputeDnbr(
+        string aoiId,
+        SentinelScenePair? scenePair,
+        bool useExtendedSclClasses)
     {
         if (scenePair is null)
             return null;
 
+        var allowedSclClasses = useExtendedSclClasses
+            ? _options.AllowedSclClasses.Concat(_options.ExtendedSclClasses).ToArray()
+            : _options.AllowedSclClasses;
+
         var before = spectralIndexService.Calculate(
             aoiId,
             scenePair.BeforeReflectanceFileName,
-            scenePair.BeforeSclFileName);
+            scenePair.BeforeSclFileName,
+            allowedSclClasses);
         var after = spectralIndexService.Calculate(
             aoiId,
             scenePair.AfterReflectanceFileName,
-            scenePair.AfterSclFileName);
+            scenePair.AfterSclFileName,
+            allowedSclClasses);
 
         return (spectralIndexService.CalculateDnbr(before, after), before.Grid);
     }

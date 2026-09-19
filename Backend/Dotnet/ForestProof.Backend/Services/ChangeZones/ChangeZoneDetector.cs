@@ -5,6 +5,7 @@ using ForestProof.Backend.Services.ChangeZones.Interfaces;
 using Microsoft.Extensions.Options;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.Operation.Union;
+using NtsGeometry = NetTopologySuite.Geometries.Geometry;
 
 namespace ForestProof.Backend.Services.ChangeZones;
 
@@ -56,7 +57,7 @@ public sealed class ChangeZoneDetector(IOptions<CalculationOptions> options) : I
         return zones;
     }
 
-    private Geometry BuildGeometry(IReadOnlyList<ChangePixel> component, RasterGrid grid)
+    private NtsGeometry BuildGeometry(IReadOnlyList<ChangePixel> component, RasterGrid grid)
     {
         var polygons = component
             .Select(pixel => CreatePixelPolygon(grid, pixel.Row, pixel.Column))
@@ -65,7 +66,7 @@ public sealed class ChangeZoneDetector(IOptions<CalculationOptions> options) : I
         return UnaryUnionOp.Union(polygons);
     }
 
-    private Geometry CreatePixelPolygon(RasterGrid grid, int row, int column)
+    private NtsGeometry CreatePixelPolygon(RasterGrid grid, int row, int column)
     {
         var minLongitude = grid.OriginLongitude + column * grid.PixelWidthDegrees;
         var maxLongitude = minLongitude + grid.PixelWidthDegrees;

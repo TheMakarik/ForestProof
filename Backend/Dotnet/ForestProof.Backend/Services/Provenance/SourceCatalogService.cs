@@ -30,7 +30,9 @@ public sealed class SourceCatalogService(IOptions<DataOptions> options) : ISourc
                 AoiId = document.GetString(row, "aoi_id"),
                 RelativePath = document.GetString(row, "relative_path"),
                 Sha256 = document.GetString(row, "sha256"),
-                SizeBytes = long.Parse(document.GetString(row, "size_bytes"))
+                SizeBytes = long.Parse(document.GetString(row, "size_bytes")),
+                Version = document.GetString(row, "product_version"),
+                RetrievedAt = document.GetString(row, "retrieved_or_created_date")
             })
             .ToArray();
     }

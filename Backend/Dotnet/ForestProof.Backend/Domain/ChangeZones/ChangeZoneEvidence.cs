@@ -29,4 +29,9 @@ public sealed record ChangeZoneEvidence
     /// Статус причины.
     /// </summary>
     public required CauseStatus CauseStatus { get; init; }
+
+    /// <summary>
+    /// Текст «что можно утверждать / чего нельзя» для интерфейса и отчёта.
+    /// </summary>
+    public required string Interpretation { get; init; }
 }

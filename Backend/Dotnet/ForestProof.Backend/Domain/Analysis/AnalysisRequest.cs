@@ -29,4 +29,9 @@ public sealed record AnalysisRequest
     /// Коэффициент чувствительности k; null — значение по умолчанию из настроек.
     /// </summary>
     public double? SensitivityCoefficient { get; init; }
+
+    /// <summary>
+    /// Использовать расширенную SCL-маску 4–7 вместо строгой 4–5.
+    /// </summary>
+    public bool UseExtendedSclClasses { get; init; }
 }

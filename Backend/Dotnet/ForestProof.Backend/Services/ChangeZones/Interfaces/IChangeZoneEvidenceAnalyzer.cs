@@ -18,6 +18,7 @@ public interface IChangeZoneEvidenceAnalyzer
     /// <param name="gfc">Растр Hansen GFC в той же CRS.</param>
     /// <param name="startYear">Начальный год периода.</param>
     /// <param name="endYear">Конечный год периода.</param>
+    /// <param name="useExtendedSclClasses">Использовать расширенную SCL-маску 4–7.</param>
     /// <returns>Доказательства и статус причины по каждой зоне.</returns>
     IReadOnlyList<ChangeZoneEvidence> Analyze(
         string aoiId,
@@ -25,5 +26,6 @@ public interface IChangeZoneEvidenceAnalyzer
         RasterGrid agbGrid,
         GfcWindow gfc,
         int startYear,
-        int endYear);
+        int endYear,
+        bool useExtendedSclClasses);
 }

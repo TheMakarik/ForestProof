@@ -34,7 +34,7 @@ public static class StatusEndpoints
             try
             {
                 var summary = pipeline.Run(request);
-                return Results.Ok(ToResponse(summary));
+                return Results.Ok(ToResponse(summary, aoiId));
             }
             catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException)
             {
@@ -45,7 +45,7 @@ public static class StatusEndpoints
         return endpoints;
     }
 
-    private static AnalysisStatusResponse ToResponse(AnalysisSummary summary) => new()
+    private static AnalysisStatusResponse ToResponse(AnalysisSummary summary, string aoiId) => new()
     {
         RunId = summary.RunId,
         Status = summary.Status.ToString(),
@@ -55,6 +55,10 @@ public static class StatusEndpoints
         InputHash = summary.InputHash,
         StartYear = summary.StartYear,
         EndYear = summary.EndYear,
-        Warnings = summary.Warnings
+        Warnings = summary.Warnings,
+        Progress = 1.0,
+        LogReference = string.IsNullOrWhiteSpace(aoiId)
+            ? null
+            : $"/api/v1/analyses/{aoiId}/changes?startYear={summary.StartYear}&endYear={summary.EndYear}"
     };
 }

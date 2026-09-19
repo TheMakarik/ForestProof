@@ -1,9 +1,13 @@
 using ForestProof.Backend.Domain.Analysis;
+using ForestProof.Backend.Domain.ChangeZones;
 using ForestProof.Backend.Endpoints.Contracts;
 using ForestProof.Backend.Options;
 using ForestProof.Backend.Persistence.Interfaces;
+using ForestProof.Backend.Services.Analysis;
 using ForestProof.Backend.Services.Analysis.Interfaces;
+using ForestProof.Backend.Services.ChangeZones;
 using ForestProof.Backend.Services.Data;
+using ForestProof.Backend.Services.Raster.Interfaces;
 using ForestProof.Backend.Services.Report.Interfaces;
 using ForestProof.Backend.Services.Spectral.Interfaces;
 using Microsoft.Extensions.Options;
@@ -29,7 +33,9 @@ public static class AnalysisEndpoints
         group.MapPost("/analyses", async (
             CreateAnalysisRequest request,
             IAnalysisPipeline pipeline,
+            IAnalysisResultCache cache,
             IAnalysisRunRepository repository,
+            IOptions<CalculationOptions> calculationOptions,
             ILoggerFactory loggerFactory,
             CancellationToken cancellationToken) =>
         {
@@ -41,9 +47,17 @@ public static class AnalysisEndpoints
                 EndYear = request.EndYear
             };
 
+            var options = calculationOptions.Value;
+            var sensitivity = analysisRequest.SensitivityCoefficient ?? options.DefaultSensitivityCoefficient;
+            var inputHash = AnalysisInputHash.Compute(analysisRequest, sensitivity);
+
+            if (cache.TryGet(inputHash, options.MethodVersion, out var cached))
+                return Results.Ok(ToResponse(cached));
+
             try
             {
                 var summary = pipeline.Run(analysisRequest);
+                cache.Store(summary);
                 await TryPersistAsync(repository, loggerFactory, summary, analysisRequest, cancellationToken);
                 return Results.Ok(ToResponse(summary));
             }
@@ -69,17 +83,74 @@ public static class AnalysisEndpoints
             string aoiId,
             int startYear,
             int endYear,
+            string? format,
             IAnalysisPipeline pipeline,
             IReportService reportService) =>
-            GenerateReport(pipeline, reportService, new AnalysisRequest
+        {
+            try
             {
-                AoiId = aoiId,
-                StartYear = startYear,
-                EndYear = endYear
-            }));
+                var summary = pipeline.Run(new AnalysisRequest
+                {
+                    AoiId = aoiId,
+                    StartYear = startYear,
+                    EndYear = endYear
+                });
+                var report = reportService.Generate(summary);
+
+                return format switch
+                {
+                    "html" => Results.Text(report.Html, "text/html; charset=utf-8"),
+                    "json" => Results.Text(report.Json, "application/json; charset=utf-8"),
+                    _ => Results.File(report.Pdf, "application/pdf")
+                };
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException)
+            {
+                return Results.BadRequest(new ApiError { Message = exception.Message });
+            }
+        });
+
+        group.MapGet("/analyses/{aoiId}/yearly.csv", (
+            string aoiId,
+            int startYear,
+            int endYear,
+            IAnalysisPipeline pipeline) =>
+        {
+            try
+            {
+                var summary = pipeline.Run(new AnalysisRequest
+                {
+                    AoiId = aoiId,
+                    StartYear = startYear,
+                    EndYear = endYear
+                });
+
+                var builder = new System.Text.StringBuilder();
+                builder.AppendLine("year,area_ha,total_carbon_tc,mean_carbon_tc_ha,coverage");
+                foreach (var item in summary.YearlySeries)
+                {
+                    builder.AppendLine(string.Join(
+                        ',',
+                        item.Year.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        item.AreaHectares.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        item.TotalCarbon.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        item.MeanCarbonPerHectare.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        item.Coverage.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+                }
+
+                return Results.File(
+                    System.Text.Encoding.UTF8.GetBytes(builder.ToString()),
+                    "text/csv",
+                    $"yearly-{aoiId}.csv");
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException)
+            {
+                return Results.BadRequest(new ApiError { Message = exception.Message });
+            }
+        });
 
         group.MapGet("/sources", (IOptions<DataOptions> dataOptions) =>
-            Results.Ok(ReadSourceIds(dataOptions.Value)));
+            Results.Ok(ReadSources(dataOptions.Value)));
 
         group.MapGet("/analyses/{aoiId}/changes", (
             string aoiId,
@@ -96,20 +167,34 @@ public static class AnalysisEndpoints
                     EndYear = endYear
                 });
 
+                var evidenceByZone = summary.ChangeZoneEvidence.ToDictionary(evidence => evidence.ZoneId);
                 var writer = new NetTopologySuite.IO.GeoJsonWriter();
-                var features = summary.ChangeZones.Select(zone => new
+                var features = new List<object>();
+
+                foreach (var zone in summary.ChangeZones)
                 {
-                    type = "Feature",
-                    geometry = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(
-                        writer.Write(zone.Geometry)),
-                    properties = new
+                    evidenceByZone.TryGetValue(zone.Id, out var evidence);
+
+                    features.Add(new
                     {
-                        id = zone.Id,
-                        areaHectares = zone.AreaHectares,
-                        contributionToDeltaCarbon = zone.ContributionToDeltaCarbon,
-                        pixelCount = zone.PixelCount
-                    }
-                }).ToArray();
+                        type = "Feature",
+                        geometry = zone.Geometry is { } geometry
+                            ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(writer.Write(geometry))
+                            : (System.Text.Json.JsonElement?)null,
+                        properties = new
+                        {
+                            id = zone.Id,
+                            areaHectares = zone.AreaHectares,
+                            contributionToDeltaCarbon = zone.ContributionToDeltaCarbon,
+                            pixelCount = zone.PixelCount,
+                            evidenceTypes = evidence?.EvidenceTypes.Select(type => type.ToString()).ToArray()
+                                ?? Array.Empty<string>(),
+                            causeStatus = evidence?.CauseStatus.ToString() ?? "Unknown",
+                            interpretation = evidence?.Interpretation
+                                ?? CauseStatusRules.Interpretation(CauseStatus.Unknown)
+                        }
+                    });
+                }
 
                 return Results.Ok(new { type = "FeatureCollection", features });
             }
@@ -126,6 +211,7 @@ public static class AnalysisEndpoints
             IAnalysisPipeline pipeline,
             ISpectralIndexService spectralIndexService,
             ISentinelSceneSelector sceneSelector,
+            IRasterService rasterService,
             IOptions<CalculationOptions> calculationOptions) =>
         {
             var k1 = pipeline.Run(new AnalysisRequest
@@ -141,6 +227,13 @@ public static class AnalysisEndpoints
                 StartYear = startYear,
                 EndYear = endYear,
                 SensitivityCoefficient = 2
+            });
+            var sclExtended = pipeline.Run(new AnalysisRequest
+            {
+                AoiId = aoiId,
+                StartYear = startYear,
+                EndYear = endYear,
+                UseExtendedSclClasses = true
             });
 
             var scenePair = sceneSelector.SelectPair(aoiId, startYear, endYear);
@@ -162,6 +255,21 @@ public static class AnalysisEndpoints
                     options.AllowedSclClasses.Concat(options.ExtendedSclClasses).ToArray()).ValidPixelCount;
             }
 
+            var cciChangeMean = Mean(rasterService.ReadChange(aoiId).AgbDifference);
+
+            var biomass2019 = rasterService.ReadBiomass(aoiId, 2019);
+            var biomass2020 = rasterService.ReadBiomass(aoiId, 2020);
+            var length = Math.Min(biomass2019.Biomass.Count, biomass2020.Biomass.Count);
+            var selfDifferences = new List<double?>(length);
+            for (var index = 0; index < length; index++)
+            {
+                var before = biomass2019.Biomass[index];
+                var after = biomass2020.Biomass[index];
+                selfDifferences.Add(before is not null && after is not null ? after.Value - before.Value : null);
+            }
+
+            var selfDifferenceMean = Mean(selfDifferences);
+
             return Results.Ok(new
             {
                 aoiId,
@@ -172,21 +280,59 @@ public static class AnalysisEndpoints
                     lower = k1.Uncertainty.Lower,
                     upper = k1.Uncertainty.Upper,
                     halfWidth = k1.Uncertainty.HalfWidth,
-                    units = k1.Units.Units
+                    units = k1.Units.Units,
+                    eproj = k1.Change.ProjectEmission,
+                    coverage = k1.YearlySeries[0].Coverage,
+                    zoneAreaHectares = k1.ChangeZones.Sum(zone => zone.AreaHectares)
                 },
                 k2 = new
                 {
                     lower = k2.Uncertainty.Lower,
                     upper = k2.Uncertainty.Upper,
                     halfWidth = k2.Uncertainty.HalfWidth,
-                    units = k2.Units.Units
+                    units = k2.Units.Units,
+                    eproj = k2.Change.ProjectEmission,
+                    coverage = k2.YearlySeries[0].Coverage,
+                    zoneAreaHectares = k2.ChangeZones.Sum(zone => zone.AreaHectares)
+                },
+                sclStrict = new
+                {
+                    units = k1.Units.Units,
+                    eproj = k1.Change.ProjectEmission,
+                    coverage = k1.YearlySeries[0].Coverage,
+                    zoneAreaHectares = k1.ChangeZones.Sum(zone => zone.AreaHectares)
+                },
+                sclExtended = new
+                {
+                    units = sclExtended.Units.Units,
+                    eproj = sclExtended.Change.ProjectEmission,
+                    coverage = sclExtended.YearlySeries[0].Coverage,
+                    zoneAreaHectares = sclExtended.ChangeZones.Sum(zone => zone.AreaHectares)
                 },
                 sclStrictValidPixels = strictValidPixels,
-                sclExtendedValidPixels = extendedValidPixels
+                sclExtendedValidPixels = extendedValidPixels,
+                cciChangeMean,
+                selfDifferenceMean
             });
         });
 
         return endpoints;
+    }
+
+    private static double? Mean(IEnumerable<double?> values)
+    {
+        var sum = 0d;
+        var count = 0;
+        foreach (var value in values)
+        {
+            if (value is null)
+                continue;
+
+            sum += value.Value;
+            count++;
+        }
+
+        return count == 0 ? null : sum / count;
     }
 
     private static IResult RunAnalysis(IAnalysisPipeline pipeline, AnalysisRequest request)
@@ -195,23 +341,6 @@ public static class AnalysisEndpoints
         {
             var summary = pipeline.Run(request);
             return Results.Ok(ToResponse(summary));
-        }
-        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException)
-        {
-            return Results.BadRequest(new ApiError { Message = exception.Message });
-        }
-    }
-
-    private static IResult GenerateReport(
-        IAnalysisPipeline pipeline,
-        IReportService reportService,
-        AnalysisRequest request)
-    {
-        try
-        {
-            var summary = pipeline.Run(request);
-            var report = reportService.Generate(summary);
-            return Results.File(report.Pdf, "application/pdf");
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException)
         {
@@ -238,15 +367,21 @@ public static class AnalysisEndpoints
         }
     }
 
-    private static IReadOnlyList<string> ReadSourceIds(DataOptions options)
+    private static IReadOnlyList<object> ReadSources(DataOptions options)
     {
         var path = Path.Join(options.DataRoot, SourcesFileName);
         if (!File.Exists(path))
-            return Array.Empty<string>();
+            return Array.Empty<object>();
 
         var document = new CsvDocument(File.ReadAllText(path));
         return document.Rows
-            .Select(row => document.GetString(row, "source_id"))
+            .Select(row => (object)new
+            {
+                sourceId = document.GetString(row, "source_id"),
+                product = document.GetString(row, "product"),
+                version = document.GetString(row, "version"),
+                licenseUrl = document.GetString(row, "license_url")
+            })
             .ToArray();
     }
 
@@ -256,6 +391,7 @@ public static class AnalysisEndpoints
         MethodVersion = summary.MethodVersion,
         DataVersion = summary.DataVersion,
         CreatedAt = summary.CreatedAt,
+        InputHash = summary.InputHash,
         Status = summary.Status.ToString(),
         AoiId = summary.AoiId,
         StartYear = summary.StartYear,
@@ -295,7 +431,14 @@ public static class AnalysisEndpoints
             UncertaintyDeduction = summary.Units.UncertaintyDeduction,
             AdjustedResult = summary.Units.AdjustedResult,
             Reserve = summary.Units.Reserve,
-            Units = summary.Units.Units
+            Units = summary.Units.Units,
+            PriceScenarios = summary.Units.PriceScenarios
+                .Select(scenario => new PriceScenarioResponse
+                {
+                    PricePerUnit = scenario.PricePerUnit,
+                    Value = scenario.Value
+                })
+                .ToArray()
         },
         ChangeZones = summary.ChangeZones
             .Select(zone => new ChangeZoneResponse

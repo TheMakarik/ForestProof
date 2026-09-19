@@ -26,6 +26,11 @@ public sealed record AnalysisSummaryResponse
     public required DateTimeOffset CreatedAt { get; init; }
 
     /// <summary>
+    /// Хэш входных параметров.
+    /// </summary>
+    public required string InputHash { get; init; }
+
+    /// <summary>
     /// Статус расчёта.
     /// </summary>
     public required string Status { get; init; }

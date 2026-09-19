@@ -24,4 +24,14 @@ public sealed record SourceAsset
     /// Размер файла в байтах.
     /// </summary>
     public required long SizeBytes { get; init; }
+
+    /// <summary>
+    /// Версия продукта-источника.
+    /// </summary>
+    public string? Version { get; init; }
+
+    /// <summary>
+    /// Дата получения или создания файла.
+    /// </summary>
+    public string? RetrievedAt { get; init; }
 }

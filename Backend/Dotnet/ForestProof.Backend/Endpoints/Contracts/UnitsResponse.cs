@@ -39,4 +39,9 @@ public sealed record UnitsResponse
     /// Потенциальные единицы (Q); null — расчёт недоступен.
     /// </summary>
     public required int? Units { get; init; }
+
+    /// <summary>
+    /// Сценарная стоимость единиц по заданным ценам.
+    /// </summary>
+    public required IReadOnlyList<PriceScenarioResponse> PriceScenarios { get; init; }
 }

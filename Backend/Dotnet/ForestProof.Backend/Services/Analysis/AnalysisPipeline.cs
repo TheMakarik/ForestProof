@@ -142,7 +142,8 @@ public sealed class AnalysisPipeline(
                 windows[request.StartYear].Grid,
                 gfc,
                 request.StartYear,
-                request.EndYear);
+                request.EndYear,
+                request.UseExtendedSclClasses);
 
             var idMap = new Dictionary<int, int>();
             foreach (var zone in partZones)
@@ -231,7 +232,7 @@ public sealed class AnalysisPipeline(
             MethodVersion = _options.MethodVersion,
             DataVersion = _options.DataVersion,
             CreatedAt = DateTimeOffset.UtcNow,
-            InputHash = ComputeInputHash(request, sensitivityCoefficient),
+            InputHash = AnalysisInputHash.Compute(request, sensitivityCoefficient),
             SourceAssets = sourceAssets,
             Status = status,
             AoiId = request.AoiId ?? string.Empty,
@@ -412,22 +413,6 @@ public sealed class AnalysisPipeline(
         }
 
         return changePixels;
-    }
-
-    private static string ComputeInputHash(AnalysisRequest request, double sensitivityCoefficient)
-    {
-        var canonical = string.Join(
-            '|',
-            request.AoiId ?? string.Empty,
-            request.PolygonGeoJson ?? string.Empty,
-            request.StartYear,
-            request.EndYear,
-            sensitivityCoefficient);
-
-        var hash = System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes(canonical));
-
-        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     private static CarbonStock ToCarbonStock(YearlyCarbonStock stock) => new()
