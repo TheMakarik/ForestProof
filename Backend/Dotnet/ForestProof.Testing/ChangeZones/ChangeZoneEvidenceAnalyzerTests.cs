@@ -6,10 +6,14 @@ public sealed class ChangeZoneEvidenceAnalyzerTests
     public void Analyze_WhenGfcLossPresent_AddsGfcEvidence()
     {
         // Arrange
-        var systemUnderTests = new ChangeZoneEvidenceAnalyzer();
+        var systemUnderTests = new ChangeZoneEvidenceAnalyzer(
+            A.Fake<IRasterService>(),
+            A.Fake<ISpectralIndexService>(),
+            A.Fake<ISentinelSceneSelector>(),
+            TestCalculationOptions.Create());
 
         // Act
-        var evidence = systemUnderTests.Analyze([CreateZone()], CreateGrid(), CreateGfc(lossYear: 5));
+        var evidence = systemUnderTests.Analyze("RU_TEST_01", [CreateZone()], CreateGrid(), CreateGfc(lossYear: 5), 2019, 2024);
 
         // Assert
         evidence.Should().ContainSingle();
@@ -21,10 +25,14 @@ public sealed class ChangeZoneEvidenceAnalyzerTests
     public void Analyze_WhenGfcLossAbsent_ReturnsNoEvidence()
     {
         // Arrange
-        var systemUnderTests = new ChangeZoneEvidenceAnalyzer();
+        var systemUnderTests = new ChangeZoneEvidenceAnalyzer(
+            A.Fake<IRasterService>(),
+            A.Fake<ISpectralIndexService>(),
+            A.Fake<ISentinelSceneSelector>(),
+            TestCalculationOptions.Create());
 
         // Act
-        var evidence = systemUnderTests.Analyze([CreateZone()], CreateGrid(), CreateGfc(lossYear: 0));
+        var evidence = systemUnderTests.Analyze("RU_TEST_01", [CreateZone()], CreateGrid(), CreateGfc(lossYear: 0), 2019, 2024);
 
         // Assert
         evidence[0].EvidenceTypes.Should().BeEmpty();
@@ -34,10 +42,14 @@ public sealed class ChangeZoneEvidenceAnalyzerTests
     public void Analyze_WhenZoneOutsideGfcGrid_ReturnsNoEvidence()
     {
         // Arrange
-        var systemUnderTests = new ChangeZoneEvidenceAnalyzer();
+        var systemUnderTests = new ChangeZoneEvidenceAnalyzer(
+            A.Fake<IRasterService>(),
+            A.Fake<ISpectralIndexService>(),
+            A.Fake<ISentinelSceneSelector>(),
+            TestCalculationOptions.Create());
 
         // Act
-        var evidence = systemUnderTests.Analyze([CreateZone(row: 100, column: 100)], CreateGrid(), CreateGfc(lossYear: 5));
+        var evidence = systemUnderTests.Analyze("RU_TEST_01", [CreateZone(row: 100, column: 100)], CreateGrid(), CreateGfc(lossYear: 5), 2019, 2024);
 
         // Assert
         evidence[0].EvidenceTypes.Should().BeEmpty();
@@ -49,7 +61,7 @@ public sealed class ChangeZoneEvidenceAnalyzerTests
         AreaHectares = 1,
         ContributionToDeltaCarbon = 1,
         PixelCount = 1,
-        Pixels = [new ChangePixel { Row = row, Column = column, AreaHectares = 1, BiomassChange = 20 }]
+        Pixels = [new ChangePixel { Row = row, Column = column, AreaHectares = 1, BiomassChange = 20, HasConfirmation = true }]
     };
 
     private static RasterGrid CreateGrid() => new()

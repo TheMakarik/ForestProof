@@ -11,12 +11,12 @@ public sealed class ChangeZoneDetectorTests
         var systemUnderTests = new ChangeZoneDetector(_options);
         ChangePixel[] pixels =
         [
-            new() { Row = 0, Column = 0, AreaHectares = 1, BiomassChange = 20 },
-            new() { Row = 0, Column = 1, AreaHectares = 1, BiomassChange = 20 }
+            new() { Row = 0, Column = 0, AreaHectares = 1, BiomassChange = 20, HasConfirmation = true },
+            new() { Row = 0, Column = 1, AreaHectares = 1, BiomassChange = 20, HasConfirmation = true }
         ];
 
         // Act
-        var zones = systemUnderTests.Detect(pixels);
+        var zones = systemUnderTests.Detect(pixels, CreateGrid());
 
         // Assert
         zones.Should().ContainSingle();
@@ -32,12 +32,12 @@ public sealed class ChangeZoneDetectorTests
         var systemUnderTests = new ChangeZoneDetector(_options);
         ChangePixel[] pixels =
         [
-            new() { Row = 0, Column = 0, AreaHectares = 2, BiomassChange = 20 },
-            new() { Row = 2, Column = 2, AreaHectares = 2, BiomassChange = -20 }
+            new() { Row = 0, Column = 0, AreaHectares = 2, BiomassChange = 20, HasConfirmation = true },
+            new() { Row = 2, Column = 2, AreaHectares = 2, BiomassChange = -20, HasConfirmation = true }
         ];
 
         // Act
-        var zones = systemUnderTests.Detect(pixels);
+        var zones = systemUnderTests.Detect(pixels, CreateGrid());
 
         // Assert
         zones.Should().HaveCount(2);
@@ -50,11 +50,11 @@ public sealed class ChangeZoneDetectorTests
         var systemUnderTests = new ChangeZoneDetector(_options);
         ChangePixel[] pixels =
         [
-            new() { Row = 0, Column = 0, AreaHectares = 1, BiomassChange = 5 }
+            new() { Row = 0, Column = 0, AreaHectares = 1, BiomassChange = 5, HasConfirmation = true }
         ];
 
         // Act
-        var zones = systemUnderTests.Detect(pixels);
+        var zones = systemUnderTests.Detect(pixels, CreateGrid());
 
         // Assert
         zones.Should().BeEmpty();
@@ -67,12 +67,12 @@ public sealed class ChangeZoneDetectorTests
         var systemUnderTests = new ChangeZoneDetector(_options);
         ChangePixel[] pixels =
         [
-            new() { Row = 0, Column = 0, AreaHectares = 0.4, BiomassChange = 20 },
-            new() { Row = 0, Column = 1, AreaHectares = 0.4, BiomassChange = 20 }
+            new() { Row = 0, Column = 0, AreaHectares = 0.4, BiomassChange = 20, HasConfirmation = true },
+            new() { Row = 0, Column = 1, AreaHectares = 0.4, BiomassChange = 20, HasConfirmation = true }
         ];
 
         // Act
-        var zones = systemUnderTests.Detect(pixels);
+        var zones = systemUnderTests.Detect(pixels, CreateGrid());
 
         // Assert
         zones.Should().BeEmpty();
@@ -85,13 +85,40 @@ public sealed class ChangeZoneDetectorTests
         var systemUnderTests = new ChangeZoneDetector(_options);
         ChangePixel[] pixels =
         [
-            new() { Row = 0, Column = 0, AreaHectares = 1, BiomassChange = 20 }
+            new() { Row = 0, Column = 0, AreaHectares = 1, BiomassChange = 20, HasConfirmation = true }
         ];
 
         // Act
-        var zones = systemUnderTests.Detect(pixels);
+        var zones = systemUnderTests.Detect(pixels, CreateGrid());
 
         // Assert
         zones.Should().BeEmpty();
     }
+
+    [Fact]
+    public void Detect_WhenComponentHasNoConfirmation_IgnoresComponent()
+    {
+        // Arrange
+        var systemUnderTests = new ChangeZoneDetector(_options);
+        ChangePixel[] pixels =
+        [
+            new() { Row = 0, Column = 0, AreaHectares = 2, BiomassChange = 20, HasConfirmation = false }
+        ];
+
+        // Act
+        var zones = systemUnderTests.Detect(pixels, CreateGrid());
+
+        // Assert
+        zones.Should().BeEmpty();
+    }
+
+    private static RasterGrid CreateGrid() => new()
+    {
+        OriginLongitude = 0,
+        OriginLatitude = 0.01,
+        PixelWidthDegrees = 0.01,
+        PixelHeightDegrees = 0.01,
+        Width = 10,
+        Height = 10
+    };
 }

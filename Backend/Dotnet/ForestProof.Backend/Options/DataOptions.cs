@@ -51,6 +51,16 @@ public sealed class DataOptions
     public required string GfcRasterFileName { get; init; }
 
     /// <summary>
+    /// Имя папки с растрами MODIS MCD64A1.
+    /// </summary>
+    public required string ModisDirectoryName { get; init; }
+
+    /// <summary>
+    /// Имя папки с растрами Sentinel-2.
+    /// </summary>
+    public required string SentinelDirectoryName { get; init; }
+
+    /// <summary>
     /// Имя папки локального кэша внешних источников.
     /// </summary>
     public required string CacheDirectoryName { get; init; }

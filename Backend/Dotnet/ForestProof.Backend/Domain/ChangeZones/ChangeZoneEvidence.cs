@@ -16,6 +16,16 @@ public sealed record ChangeZoneEvidence
     public required IReadOnlyList<EvidenceType> EvidenceTypes { get; init; }
 
     /// <summary>
+    /// Годы потери покрова по GFC в зоне.
+    /// </summary>
+    public required IReadOnlyList<int> GfcLossYears { get; init; }
+
+    /// <summary>
+    /// Годы всех найденных подтверждающих наблюдений.
+    /// </summary>
+    public required IReadOnlyList<int> EvidenceYears { get; init; }
+
+    /// <summary>
     /// Статус причины.
     /// </summary>
     public required CauseStatus CauseStatus { get; init; }

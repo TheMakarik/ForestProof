@@ -1,0 +1,20 @@
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    container_name: forestproof-postgis
+    environment:
+      POSTGRES_DB: forestproof
+      POSTGRES_USER: forestproof
+      POSTGRES_PASSWORD: forestproof
+    ports:
+      - "5432:5432"
+    volumes:
+      - forestproof-postgis-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forestproof -d forestproof"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  forestproof-postgis-data:

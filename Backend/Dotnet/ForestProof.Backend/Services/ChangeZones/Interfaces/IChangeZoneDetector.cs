@@ -1,4 +1,5 @@
 using ForestProof.Backend.Domain.ChangeZones;
+using ForestProof.Backend.Domain.Geometry;
 
 namespace ForestProof.Backend.Services.ChangeZones.Interfaces;
 
@@ -11,6 +12,7 @@ public interface IChangeZoneDetector
     /// Строит связные компоненты пикселей с изменением выше порога и фильтрует их по площади.
     /// </summary>
     /// <param name="pixels">Пиксели с изменением биомассы.</param>
-    /// <returns>Зоны изменений с площадью и вкладом в ΔC.</returns>
-    IReadOnlyList<ChangeZone> Detect(IReadOnlyList<ChangePixel> pixels);
+    /// <param name="grid">Растровая сетка для построения геометрии зон.</param>
+    /// <returns>Зоны изменений с геометрией, площадью и вкладом в ΔC.</returns>
+    IReadOnlyList<ChangeZone> Detect(IReadOnlyList<ChangePixel> pixels, RasterGrid grid);
 }

@@ -5,6 +5,7 @@ using ForestProof.Backend.Options;
 using ForestProof.Backend.Services.Raster.Interfaces;
 using Microsoft.Extensions.Options;
 using OSGeo.GDAL;
+using OSGeo.OSR;
 
 namespace ForestProof.Backend.Services.Raster;
 
@@ -67,6 +68,138 @@ public sealed class RasterService(IOptions<DataOptions> options) : IRasterServic
             TreeCover = treeCover.Select(value => value is { } number ? (int?)number : null).ToArray(),
             LossYear = lossYear.Select(value => value is { } number ? (int?)number : null).ToArray()
         };
+    }
+
+    /// <inheritdoc />
+    public RasterBandsWindow ReadBands(string aoiId, string relativePath, IReadOnlyList<int> bandIndexes)
+    {
+        GdalInitializer.EnsureInitialized();
+
+        using var dataset = Gdal.Open(Path.Join(_options.DataRoot, aoiId, relativePath), Access.GA_ReadOnly);
+        var grid = ReadGrid(dataset);
+
+        var bands = bandIndexes
+            .Select(index => (IReadOnlyList<double?>)ReadBand(dataset.GetRasterBand(index), grid))
+            .ToArray();
+
+        return new RasterBandsWindow
+        {
+            Grid = grid,
+            Bands = bands
+        };
+    }
+
+    /// <inheritdoc />
+    public ChangeWindow ReadChange(string aoiId)
+    {
+        GdalInitializer.EnsureInitialized();
+
+        using var dataset = Gdal.Open(
+            Path.Join(_options.DataRoot, aoiId, _options.ChangeRasterFileName),
+            Access.GA_ReadOnly);
+
+        if (dataset.RasterCount < StandardDeviationBandIndex)
+            throw new InvalidDataException(
+                $"Растр изменения '{aoiId}' должен содержать AGB_difference и AGB_difference_SD.");
+
+        var grid = ReadGrid(dataset);
+        var difference = ReadBand(dataset.GetRasterBand(1), grid);
+        var standardDeviation = ReadBand(dataset.GetRasterBand(2), grid);
+        var qualityFlag = dataset.RasterCount >= 3
+            ? ReadBand(dataset.GetRasterBand(3), grid)
+            : new double?[grid.Width * grid.Height];
+
+        return new ChangeWindow
+        {
+            Grid = grid,
+            AgbDifference = difference,
+            StandardDeviation = standardDeviation,
+            QualityFlag = qualityFlag.Select(value => value is { } number ? (int?)number : null).ToArray()
+        };
+    }
+
+    /// <inheritdoc />
+    public int? GetModisBurnYear(string aoiId)
+    {
+        var directory = Path.Join(_options.DataRoot, aoiId, _options.ModisDirectoryName);
+        if (!Directory.Exists(directory))
+            return null;
+
+        var file = Directory.GetFiles(directory, "*_Burn_Date.tif").FirstOrDefault();
+        if (file is null)
+            return null;
+
+        var match = System.Text.RegularExpressions.Regex.Match(
+            Path.GetFileName(file),
+            @"A(\d{4})\d{3}");
+
+        return match.Success && int.TryParse(match.Groups[1].Value, out var year) ? year : null;
+    }
+
+    /// <inheritdoc />
+    public double? SampleModisBurnDate(string aoiId, double longitude, double latitude)
+    {
+        var directory = Path.Join(_options.DataRoot, aoiId, _options.ModisDirectoryName);
+        if (!Directory.Exists(directory))
+            return null;
+
+        var file = Directory.GetFiles(directory, "*_Burn_Date.tif").FirstOrDefault();
+        return file is null ? null : SampleRaster(file, 1, longitude, latitude);
+    }
+
+    /// <inheritdoc />
+    public (int Row, int Column)? TransformToPixel(
+        string aoiId,
+        string relativePath,
+        double longitude,
+        double latitude)
+    {
+        GdalInitializer.EnsureInitialized();
+
+        using var dataset = Gdal.Open(
+            Path.Join(_options.DataRoot, aoiId, relativePath),
+            Access.GA_ReadOnly);
+
+        return TransformToPixel(dataset, longitude, latitude);
+    }
+
+    private double? SampleRaster(string path, int bandIndex, double longitude, double latitude)
+    {
+        GdalInitializer.EnsureInitialized();
+
+        using var dataset = Gdal.Open(path, Access.GA_ReadOnly);
+        if (TransformToPixel(dataset, longitude, latitude) is not { } pixel)
+            return null;
+
+        var buffer = new double[1];
+        dataset.GetRasterBand(bandIndex).ReadRaster(pixel.Column, pixel.Row, 1, 1, buffer, 1, 1, 0, 0);
+        return double.IsFinite(buffer[0]) ? buffer[0] : null;
+    }
+
+    private static (int Row, int Column)? TransformToPixel(Dataset dataset, double longitude, double latitude)
+    {
+        var target = dataset.GetSpatialRef();
+        if (target is null)
+            return null;
+
+        using var source = new SpatialReference("");
+        source.ImportFromEPSG(4326);
+        source.SetAxisMappingStrategy(AxisMappingStrategy.OAMS_TRADITIONAL_GIS_ORDER);
+        target.SetAxisMappingStrategy(AxisMappingStrategy.OAMS_TRADITIONAL_GIS_ORDER);
+        using var transformation = new CoordinateTransformation(source, target);
+
+        var point = new[] { longitude, latitude, 0.0 };
+        transformation.TransformPoint(point);
+
+        var geoTransform = new double[6];
+        dataset.GetGeoTransform(geoTransform);
+        var column = (int)Math.Floor((point[0] - geoTransform[0]) / geoTransform[1]);
+        var row = (int)Math.Floor((point[1] - geoTransform[3]) / geoTransform[5]);
+
+        if (row < 0 || row >= dataset.RasterYSize || column < 0 || column >= dataset.RasterXSize)
+            return null;
+
+        return (row, column);
     }
 
     private static void ValidateWgs84Crs(Dataset dataset, string source)

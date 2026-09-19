@@ -24,4 +24,9 @@ public sealed record ChangePixel
     /// Изменение AGB, т/га (bᵢ,t₁ − bᵢ,t₀).
     /// </summary>
     public required double BiomassChange { get; init; }
+
+    /// <summary>
+    /// Признак наличия хотя бы одного подтверждения (GFC, Sentinel-2 или MODIS).
+    /// </summary>
+    public required bool HasConfirmation { get; init; }
 }

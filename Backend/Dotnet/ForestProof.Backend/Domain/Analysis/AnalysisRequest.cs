@@ -6,9 +6,14 @@ namespace ForestProof.Backend.Domain.Analysis;
 public sealed record AnalysisRequest
 {
     /// <summary>
-    /// Идентификатор AOI.
+    /// Идентификатор AOI из каталога; может быть не задан при пользовательском полигоне.
     /// </summary>
-    public required string AoiId { get; init; }
+    public string? AoiId { get; init; }
+
+    /// <summary>
+    /// Пользовательский полигон в GeoJSON (WGS 84); имеет приоритет над AoiId.
+    /// </summary>
+    public string? PolygonGeoJson { get; init; }
 
     /// <summary>
     /// Начальный год периода (t₀).
@@ -19,4 +24,9 @@ public sealed record AnalysisRequest
     /// Конечный год периода (t₁).
     /// </summary>
     public required int EndYear { get; init; }
+
+    /// <summary>
+    /// Коэффициент чувствительности k; null — значение по умолчанию из настроек.
+    /// </summary>
+    public double? SensitivityCoefficient { get; init; }
 }

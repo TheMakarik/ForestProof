@@ -74,6 +74,24 @@ public sealed class CalculationOptions
     public required double MinChangeZoneAreaHectares { get; init; }
 
     /// <summary>
+    /// Порог dNBR для подтверждения изменения Sentinel-2.
+    /// </summary>
+    [Range(0.0, 2.0)]
+    public required double SentinelDnbrThreshold { get; init; }
+
+    /// <summary>
+    /// Версия методики расчёта.
+    /// </summary>
+    [Required]
+    public required string MethodVersion { get; init; }
+
+    /// <summary>
+    /// Версия используемого набора данных.
+    /// </summary>
+    [Required]
+    public required string DataVersion { get; init; }
+
+    /// <summary>
     /// Исторический год базовой линии.
     /// </summary>
     [Range(1900, 2100)]

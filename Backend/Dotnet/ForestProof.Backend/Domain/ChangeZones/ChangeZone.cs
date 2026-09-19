@@ -1,5 +1,7 @@
 namespace ForestProof.Backend.Domain.ChangeZones;
 
+using NetTopologySuite.Geometries;
+
 /// <summary>
 /// Связная зона изменения биомассы.
 /// </summary>
@@ -9,6 +11,11 @@ public sealed record ChangeZone
     /// Порядковый идентификатор зоны.
     /// </summary>
     public required int Id { get; init; }
+
+    /// <summary>
+    /// Геометрия зоны в WGS 84.
+    /// </summary>
+    public required Geometry Geometry { get; init; }
 
     /// <summary>
     /// Площадь зоны, га.

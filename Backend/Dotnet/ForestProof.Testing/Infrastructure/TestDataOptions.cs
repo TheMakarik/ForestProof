@@ -16,6 +16,8 @@ public static class TestDataOptions
             BiomassRasterFileNamePattern = "CCI_Biomass_{year}.tif",
             ChangeRasterFileName = "CCI_Change_2019_2020.tif",
             GfcRasterFileName = "GFC_2025_v1_13.tif",
+            ModisDirectoryName = "MODIS",
+            SentinelDirectoryName = "Sentinel2",
             CacheDirectoryName = "cache",
             ReportOutputDirectoryName = "reports"
         });

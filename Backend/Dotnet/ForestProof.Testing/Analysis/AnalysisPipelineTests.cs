@@ -119,6 +119,78 @@ public sealed class AnalysisPipelineTests
         summary.Units.Reason.Should().Be(UnitBlockReason.IncompleteCoverage);
     }
 
+    [Fact]
+    public void Run_WhenChangeConfirmedByGfc_ReturnsChangeZone()
+    {
+        // Arrange
+        var rasterService = A.Fake<IRasterService>();
+        A.CallTo(() => rasterService.ReadBiomass("RU_TEST_01", 2023)).Returns(CreateWindow(100, 0.3));
+        A.CallTo(() => rasterService.ReadBiomass("RU_TEST_01", 2024)).Returns(CreateWindow(130, 0.3));
+        var geometryService = CreateGeometryService(pixelAreaHectares: 100);
+        var systemUnderTests = CreatePipeline(rasterService, geometryService);
+        A.CallTo(() => rasterService.ReadGfc("RU_TEST_01")).Returns(CreateGfcWindow(lossYear: 5));
+
+        // Act
+        var summary = systemUnderTests.Run(new AnalysisRequest
+        {
+            AoiId = "RU_TEST_01",
+            StartYear = 2023,
+            EndYear = 2024
+        });
+
+        // Assert
+        summary.ChangeZones.Should().ContainSingle();
+        summary.ChangeZoneEvidence.Should().ContainSingle();
+        summary.ChangeZoneEvidence[0].EvidenceTypes.Should().Contain(EvidenceType.Gfc);
+        summary.ChangeZoneEvidence[0].GfcLossYears.Should().Contain(2005);
+        summary.ChangeZoneEvidence[0].CauseStatus.Should().Be(CauseStatus.Unknown);
+    }
+
+    [Fact]
+    public void Run_WhenChangeNotConfirmed_ReturnsNoChangeZones()
+    {
+        // Arrange
+        var rasterService = A.Fake<IRasterService>();
+        A.CallTo(() => rasterService.ReadBiomass("RU_TEST_01", 2023)).Returns(CreateWindow(100, 0.3));
+        A.CallTo(() => rasterService.ReadBiomass("RU_TEST_01", 2024)).Returns(CreateWindow(130, 0.3));
+        var geometryService = CreateGeometryService(pixelAreaHectares: 100);
+        var systemUnderTests = CreatePipeline(rasterService, geometryService);
+
+        // Act
+        var summary = systemUnderTests.Run(new AnalysisRequest
+        {
+            AoiId = "RU_TEST_01",
+            StartYear = 2023,
+            EndYear = 2024
+        });
+
+        // Assert
+        summary.ChangeZones.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Run_WhenCustomGeoJsonPolygon_ReturnsSummary()
+    {
+        // Arrange
+        var rasterService = A.Fake<IRasterService>();
+        A.CallTo(() => rasterService.ReadBiomass("RU_TEST_01", 2023)).Returns(CreateWindow(100, 0.3));
+        A.CallTo(() => rasterService.ReadBiomass("RU_TEST_01", 2024)).Returns(CreateWindow(104, 0.3));
+        var geometryService = CreateGeometryService(pixelAreaHectares: 100);
+        var systemUnderTests = CreatePipeline(rasterService, geometryService);
+
+        // Act
+        var summary = systemUnderTests.Run(new AnalysisRequest
+        {
+            PolygonGeoJson =
+                "{\"type\":\"Polygon\",\"coordinates\":[[[0,0],[0.01,0],[0.01,0.01],[0,0.01],[0,0]]]}",
+            StartYear = 2023,
+            EndYear = 2024
+        });
+
+        // Assert
+        summary.Units.Units.Should().Be(395);
+    }
+
     private static AnalysisPipeline CreatePipeline(IRasterService rasterService, IGeometryService geometryService)
     {
         var options = TestCalculationOptions.Create();
@@ -155,6 +227,12 @@ public sealed class AnalysisPipelineTests
             HistoricalRate = 0.47
         });
 
+        A.CallTo(() => rasterService.ReadGfc("RU_TEST_01")).Returns(CreateGfcWindow());
+        A.CallTo(() => rasterService.ReadChange("RU_TEST_01")).Returns(CreateChangeWindow());
+
+        var sourceCatalogService = A.Fake<ISourceCatalogService>();
+        A.CallTo(() => sourceCatalogService.ReadCatalog(A<string>._)).Returns(Array.Empty<SourceAsset>());
+
         return new AnalysisPipeline(
             aoiCatalogReader,
             baselineReader,
@@ -164,6 +242,13 @@ public sealed class AnalysisPipelineTests
             new UncertaintyCalculator(options),
             new BaselineCalculator(options),
             new UnitCalculator(options),
+            new ChangeZoneDetector(options),
+            new ChangeZoneEvidenceAnalyzer(
+                rasterService,
+                A.Fake<ISpectralIndexService>(),
+                A.Fake<ISentinelSceneSelector>(),
+                options),
+            sourceCatalogService,
             options);
     }
 
@@ -198,6 +283,37 @@ public sealed class AnalysisPipelineTests
         Biomass = [biomass],
         StandardDeviation = [standardDeviation],
         ValidPixelCount = 1
+    };
+
+    private static ChangeWindow CreateChangeWindow() => new()
+    {
+        Grid = new RasterGrid
+        {
+            OriginLongitude = 0,
+            OriginLatitude = 0.01,
+            PixelWidthDegrees = 0.01,
+            PixelHeightDegrees = 0.01,
+            Width = 1,
+            Height = 1
+        },
+        AgbDifference = [0],
+        StandardDeviation = [0],
+        QualityFlag = [0]
+    };
+
+    private static GfcWindow CreateGfcWindow(int lossYear = 0) => new()
+    {
+        Grid = new RasterGrid
+        {
+            OriginLongitude = 0,
+            OriginLatitude = 0.01,
+            PixelWidthDegrees = 0.01,
+            PixelHeightDegrees = 0.01,
+            Width = 1,
+            Height = 1
+        },
+        TreeCover = [50],
+        LossYear = [lossYear]
     };
 
     private static Polygon CreateSquare()

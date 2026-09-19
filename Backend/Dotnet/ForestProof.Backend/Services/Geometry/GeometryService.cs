@@ -32,6 +32,7 @@ public sealed class GeometryService(IOptions<GeometryOptions> options) : IGeomet
 
         var warnings = new List<string>();
         var validPolygon = EnsureValid(polygon, warnings);
+        WarnIfOutsideGrid(validPolygon, grid, warnings);
         var targetPolygon = Transform(validPolygon);
         var polygonAreaHectares = targetPolygon.Area / SquareMetersPerHectare;
 
@@ -69,6 +70,18 @@ public sealed class GeometryService(IOptions<GeometryOptions> options) : IGeomet
             Pixels = pixels,
             Warnings = warnings
         };
+    }
+
+    private static void WarnIfOutsideGrid(NtsGeometry polygon, RasterGrid grid, ICollection<string> warnings)
+    {
+        var envelope = polygon.EnvelopeInternal;
+        var west = grid.OriginLongitude;
+        var east = grid.OriginLongitude + grid.Width * grid.PixelWidthDegrees;
+        var north = grid.OriginLatitude;
+        var south = grid.OriginLatitude - grid.Height * grid.PixelHeightDegrees;
+
+        if (envelope.MinX < west || envelope.MaxX > east || envelope.MinY < south || envelope.MaxY > north)
+            warnings.Add("Контур частично выходит за покрытие растра; учтена только доступная часть.");
     }
 
     private static NtsGeometry EnsureValid(NtsGeometry polygon, ICollection<string> warnings)
