@@ -190,6 +190,53 @@ public sealed class ReportService(IOptions<DataOptions> options) : IReportServic
 
         builder.AppendLine("</table>");
 
+        builder.AppendLine("<h2>Параметры методики</h2>");
+        builder.AppendLine("<table>");
+        Row(builder, "method_version", Escape(summary.MethodVersion));
+        Row(builder, "data_version", Escape(summary.DataVersion));
+        Row(builder, "run_id", Escape(summary.RunId));
+        Row(builder, "Период", $"{summary.StartYear}–{summary.EndYear}");
+        Row(builder, "Параметры", "см. parameters.csv");
+        builder.AppendLine("</table>");
+
+        builder.AppendLine("<h2>Источники и дата сцен</h2>");
+        if (summary.SourceAssets.Count == 0)
+        {
+            builder.AppendLine("<p>Источники не указаны.</p>");
+        }
+        else
+        {
+            builder.AppendLine("<table>");
+            builder.AppendLine(
+                "<tr><th>RelativePath</th><th>Version</th><th>RetrievedAt</th><th>SHA-256</th></tr>");
+            foreach (var asset in summary.SourceAssets)
+            {
+                builder.AppendLine(
+                    $"<tr><td>{Escape(asset.RelativePath)}</td><td>{Escape(asset.Version ?? "—")}</td>" +
+                    $"<td>{Escape(asset.RetrievedAt ?? "—")}</td><td>{Escape(ShortSha(asset.Sha256))}</td></tr>");
+            }
+
+            builder.AppendLine("</table>");
+        }
+
+        var sceneYears = summary.ChangeZoneEvidence
+            .SelectMany(evidence => evidence.EvidenceYears)
+            .Distinct()
+            .Order()
+            .ToArray();
+        builder.AppendLine(
+            sceneYears.Length == 0
+                ? "<p>Годы сцен: —</p>"
+                : $"<p>Годы сцен: {string.Join(", ", sceneYears)}</p>");
+
+        builder.AppendLine("<h2>Ограничения</h2>");
+        builder.AppendLine("<ul>");
+        builder.AppendLine("<li>Диапазон L–U является сценарным, а не доверительным интервалом.</li>");
+        builder.AppendLine("<li>GFC не определяет причину изменения покрова.</li>");
+        builder.AppendLine("<li>MODIS — это сигнал гари, а не подтверждение причины.</li>");
+        builder.AppendLine("<li>Единицы не сертифицированы.</li>");
+        builder.AppendLine("</ul>");
+
         builder.AppendLine("<h2>Предупреждения</h2>");
         if (summary.Warnings.Count == 0)
         {
@@ -233,6 +280,7 @@ public sealed class ReportService(IOptions<DataOptions> options) : IReportServic
                         column.Item().Text($"Area: {summary.AoiId}");
                         column.Item().Text($"Period: {summary.StartYear}-{summary.EndYear}");
                         column.Item().Text($"Methodology: v{MethodVersion}");
+                        column.Item().Text($"Data version: {summary.DataVersion}; Run id: {summary.RunId}");
                         column.Item().Text($"Generated: {generatedAt.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} UTC");
                         column.Item().Text($"Polygon area: {Invariant(summary.PolygonAreaHectares)} ha");
                         column.Item().Text($"Delta C: {Invariant(summary.Change.DeltaCarbon)} t C");
@@ -241,6 +289,11 @@ public sealed class ReportService(IOptions<DataOptions> options) : IReportServic
                         column.Item().Text($"Radj: {Invariant(summary.Units.AdjustedResult)} t CO2-eq");
                         column.Item().Text($"Q: {UnitsText(summary.Units)}");
                         column.Item().Text($"Unit status: {summary.Units.Status}");
+
+                        column.Item().PaddingTop(8).Text("Limitations").SemiBold();
+                        column.Item().Text(
+                            "L-U is a scenario range, not a confidence interval. GFC does not identify the cause. " +
+                            "MODIS is a burn signal only. Units are not certified.");
                     });
 
                     page.Footer().AlignCenter().Text(text =>
@@ -297,4 +350,7 @@ public sealed class ReportService(IOptions<DataOptions> options) : IReportServic
         value.ToString("dd.MM.yyyy HH:mm", Culture) + " UTC";
 
     private static string Escape(string value) => WebUtility.HtmlEncode(value);
+
+    private static string ShortSha(string sha256) =>
+        string.IsNullOrEmpty(sha256) ? "—" : sha256.Length <= 12 ? sha256 : sha256[..12];
 }

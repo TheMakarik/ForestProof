@@ -1,0 +1,27 @@
+# Version control / IDE
+.git
+.gitignore
+.idea
+*.sln.DotSettings.user
+ForestProof.slnx
+opencode.json
+
+# Build artifacts
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/.cache
+**/.vite
+
+# Non-runtime docs / assets
+Assets
+Skills
+problom.json
+Backend/openapi.json
+Backend/WORK_SPLIT.md
+Frontend/заглушка.txt
+
+# Local env / logs
+.env
+*.log

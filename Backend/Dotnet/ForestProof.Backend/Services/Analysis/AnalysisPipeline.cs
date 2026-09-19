@@ -146,6 +146,14 @@ public sealed class AnalysisPipeline(
                 request.EndYear,
                 request.UseExtendedSclClasses);
 
+            var evidencedZoneIds = partEvidence
+                .Where(evidence => evidence.EvidenceTypes.Count > 0)
+                .Select(evidence => evidence.ZoneId)
+                .ToHashSet();
+            partZones = partZones
+                .Where(zone => evidencedZoneIds.Contains(zone.Id))
+                .ToList();
+
             var idMap = new Dictionary<int, int>();
             foreach (var zone in partZones)
             {
@@ -155,7 +163,12 @@ public sealed class AnalysisPipeline(
             }
 
             foreach (var evidence in partEvidence)
-                changeZoneEvidence.Add(evidence with { ZoneId = idMap[evidence.ZoneId] });
+            {
+                if (!idMap.TryGetValue(evidence.ZoneId, out var newZoneId))
+                    continue;
+
+                changeZoneEvidence.Add(evidence with { ZoneId = newZoneId });
+            }
         }
 
         var series = years.Select(year =>
@@ -226,6 +239,19 @@ public sealed class AnalysisPipeline(
             .GroupBy(asset => asset.RelativePath)
             .Select(group => group.First())
             .ToArray();
+
+        foreach (var asset in sourceAssets)
+        {
+            try
+            {
+                if (!sourceCatalogService.Verify(asset.AoiId, asset.RelativePath, asset.Sha256))
+                    warnings.Add($"SHA-256 не совпадает для {asset.RelativePath}");
+            }
+            catch (Exception)
+            {
+                warnings.Add($"SHA-256 не проверен для {asset.RelativePath}");
+            }
+        }
 
         return new AnalysisSummary
         {

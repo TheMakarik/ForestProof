@@ -8,6 +8,8 @@ using Scrutor;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.AddMethodologyParametersFromCsv();
+
 builder.AddOptions<CalculationOptions>();
 builder.AddOptions<DataOptions>();
 builder.AddOptions<GeometryOptions>();
@@ -33,6 +35,8 @@ builder.Services.Scan(selector => selector
 
 var app = builder.Build();
 
+await MigrateDatabaseAsync(app);
+
 app.MapOpenApi();
 
 app.MapGet("/", () => "Hello World!");
@@ -41,5 +45,33 @@ app.MapStatusEndpoints();
 app.MapRegistryEndpoints();
 
 app.Run();
+
+static async Task MigrateDatabaseAsync(WebApplication application)
+{
+    const int maxAttempts = 5;
+
+    for (var attempt = 1; attempt <= maxAttempts; attempt++)
+    {
+        try
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            var contextFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<ForestProofDbContext>>();
+            await using var dbContext = await contextFactory.CreateDbContextAsync();
+            await dbContext.Database.MigrateAsync();
+            return;
+        }
+        catch (Exception exception)
+        {
+            application.Logger.LogWarning(
+                exception,
+                "Не удалось применить миграции базы данных (попытка {Attempt}/{MaxAttempts}); сервис продолжит работу без БД.",
+                attempt,
+                maxAttempts);
+
+            if (attempt < maxAttempts)
+                await Task.Delay(TimeSpan.FromSeconds(2));
+        }
+    }
+}
 
 public partial class Program;

@@ -1,8 +1,11 @@
 // Package layers resolves the gateway's map-layer keys (aoi, agb_start,
-// agb_end, gfc, cci_change, modis_burn, sentinel2_before, sentinel2_after)
-// to actual bytes on disk (or, for Sentinel-2 as a last resort, a STAC
-// fallback download), each annotated with provenance/legend metadata drawn
-// from the local dataset catalog.
+// agb_end, gfc, cci_change, modis_burn, coverage, sentinel2_before,
+// sentinel2_after, ndvi, nbr) to actual bytes on disk (or, for Sentinel-2
+// as a last resort, a STAC fallback download), each annotated with
+// provenance/description/legend metadata drawn from the local dataset
+// catalog. ndvi and nbr are computed indices with no file of their own:
+// they are listed with metadata, but ResolveLayer reports them as
+// non-servable instead of failing with a server error.
 package layers
 
 import (
@@ -37,11 +40,13 @@ type LayerFile struct {
 // LayerInfo describes one layer key's availability for a given AOI/period,
 // for the GET .../layers listing endpoint.
 type LayerInfo struct {
-	Key       string `json:"key"`
-	Available bool   `json:"available"`
-	Reason    string `json:"reason,omitempty"`
-	SourceID  string `json:"sourceId,omitempty"`
-	License   string `json:"licenseUrl,omitempty"`
+	Key         string `json:"key"`
+	Available   bool   `json:"available"`
+	Reason      string `json:"reason,omitempty"`
+	Description string `json:"description,omitempty"`
+	Legend      string `json:"legend,omitempty"`
+	SourceID    string `json:"sourceId,omitempty"`
+	License     string `json:"licenseUrl,omitempty"`
 }
 
 // Deps bundles everything ResolveLayer/ListLayers need.
@@ -57,7 +62,7 @@ type Deps struct {
 
 var allLayerKeys = []string{
 	"aoi", "agb_start", "agb_end", "gfc", "cci_change", "modis_burn",
-	"sentinel2_before", "sentinel2_after",
+	"coverage", "sentinel2_before", "sentinel2_after", "ndvi", "nbr",
 }
 
 // ListLayers reports, for every known layer key, whether it can currently
@@ -68,14 +73,33 @@ var allLayerKeys = []string{
 func ListLayers(deps Deps, aoiID string, startYear, endYear int) []LayerInfo {
 	infos := make([]LayerInfo, 0, len(allLayerKeys))
 	for _, key := range allLayerKeys {
+		meta := layerMetadataByKey[key]
+
 		if key == "sentinel2_before" || key == "sentinel2_after" {
-			infos = append(infos, listSentinelInfo(deps, aoiID, startYear, endYear, key))
+			info := listSentinelInfo(deps, aoiID, startYear, endYear, key)
+			info.Description = meta.Description
+			info.Legend = meta.Legend
+			infos = append(infos, info)
 			continue
 		}
 
-		info := LayerInfo{Key: key}
+		// ndvi/nbr are computed from Sentinel-2 and have no raster of their
+		// own; they are still listed (with description/legend) so clients can
+		// discover them, but flagged unavailable with an explanatory reason.
+		if key == "ndvi" || key == "nbr" {
+			infos = append(infos, listSpectralIndexInfo(deps, aoiID, startYear, endYear, key))
+			continue
+		}
+
+		info := LayerInfo{Key: key, Description: meta.Description, Legend: meta.Legend}
 		file, _, err := ResolveLayer(context.Background(), deps, aoiID, startYear, endYear, key)
 		if err != nil {
+			// coverage is only meaningful when a real SCL raster exists, so
+			// it is omitted from the listing rather than advertised
+			// unavailable.
+			if key == "coverage" {
+				continue
+			}
 			info.Available = false
 			info.Reason = err.Error()
 		} else {
@@ -88,6 +112,25 @@ func ListLayers(deps Deps, aoiID string, startYear, endYear int) []LayerInfo {
 		infos = append(infos, info)
 	}
 	return infos
+}
+
+// listSpectralIndexInfo describes a computed spectral index. The index is
+// always listed with its legend so clients can discover it, but it is never
+// Available as a file: ResolveLayer reports it as computed rather than
+// serving (or 500-ing on) a nonexistent raster.
+func listSpectralIndexInfo(deps Deps, aoiID string, startYear, endYear int, key string) LayerInfo {
+	meta := layerMetadataByKey[key]
+	reason := fmt.Sprintf("слой %q вычисляется по Sentinel-2 и не предоставляется отдельным файлом", key)
+	if _, ok := catalog.SelectScenePair(deps.Scenes, aoiID, startYear, endYear); !ok {
+		reason += "; локальные сцены Sentinel-2 для этого AOI/периода отсутствуют"
+	}
+	return LayerInfo{
+		Key:         key,
+		Available:   false,
+		Reason:      reason,
+		Description: meta.Description,
+		Legend:      meta.Legend,
+	}
 }
 
 // firstLicenseURL returns the license URL of the first of sourceIDs found
@@ -131,6 +174,11 @@ func ResolveLayer(ctx context.Context, deps Deps, aoiID string, startYear, endYe
 		return resolveCciChange(deps, aoiID, startYear, endYear)
 	case "modis_burn":
 		return resolveModisBurn(deps, aoiID)
+	case "coverage":
+		return resolveCoverage(deps, aoiID, startYear, endYear)
+	case "ndvi", "nbr":
+		return LayerFile{}, nil, fmt.Errorf(
+			"layers: %s вычисляется по Sentinel-2, файл не предоставляется", key)
 	case "sentinel2_before":
 		before, _, status, warnings, err := ResolveSentinelPair(ctx, deps, aoiID, startYear, endYear)
 		if err != nil {
@@ -216,6 +264,37 @@ func resolveModisBurn(deps Deps, aoiID string) (LayerFile, []string, error) {
 	entry := findCatalogEntry(deps.FileCatalog, relativePath)
 
 	return LayerFile{Path: path, ContentType: "image/tiff", Source: entry}, nil, nil
+}
+
+// resolveCoverage serves the Sentinel-2 scene-classification (SCL) raster of
+// the selected scene pair as the "suitable coverage" layer. The end-of-period
+// scene is preferred, with the start-of-period scene as a fallback. Only
+// files already present on disk are served — no synthetic stub is fabricated,
+// so a missing SCL makes coverage unavailable rather than invented.
+func resolveCoverage(deps Deps, aoiID string, startYear, endYear int) (LayerFile, []string, error) {
+	pair, ok := catalog.SelectScenePair(deps.Scenes, aoiID, startYear, endYear)
+	if !ok {
+		return LayerFile{}, nil, fmt.Errorf(
+			"layers: no local Sentinel-2 scene pair for %s to derive coverage from", aoiID)
+	}
+
+	for _, scene := range []catalog.Scene{pair.After, pair.Before} {
+		if scene.SclPath == "" {
+			continue
+		}
+		path := filepath.Join(deps.DataRoot, scene.SclPath)
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		return LayerFile{
+			Path:        path,
+			ContentType: "image/tiff",
+			Source:      findCatalogEntry(deps.FileCatalog, scene.SclPath),
+		}, nil, nil
+	}
+
+	return LayerFile{}, nil, fmt.Errorf(
+		"layers: no Sentinel-2 SCL raster on disk for %s (%d-%d)", aoiID, startYear, endYear)
 }
 
 // ResolveSentinelPair implements the fallback chain: (1) try the curated

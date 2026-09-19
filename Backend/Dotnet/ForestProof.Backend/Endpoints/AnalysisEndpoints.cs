@@ -2,6 +2,7 @@ using ForestProof.Backend.Domain.Analysis;
 using ForestProof.Backend.Domain.ChangeZones;
 using ForestProof.Backend.Endpoints.Contracts;
 using ForestProof.Backend.Options;
+using ForestProof.Backend.Persistence.Entities;
 using ForestProof.Backend.Persistence.Interfaces;
 using ForestProof.Backend.Services.Analysis;
 using ForestProof.Backend.Services.Analysis.Interfaces;
@@ -68,11 +69,45 @@ public static class AnalysisEndpoints
             CreateAnalysisRequest request,
             IAnalysisPipeline pipeline) => BuildChanges(pipeline, ToAnalysisRequest(request)));
 
-        group.MapPost("/analyses/reports", (
+        group.MapPost("/analyses/reports", async (
             CreateReportRequest request,
             IAnalysisPipeline pipeline,
-            IReportService reportService) =>
-            BuildReport(pipeline, reportService, ToAnalysisRequest(request), request.Format));
+            IReportService reportService,
+            IAnalysisRunRepository repository,
+            ILoggerFactory loggerFactory,
+            CancellationToken cancellationToken) =>
+            await BuildReport(
+                pipeline,
+                reportService,
+                repository,
+                loggerFactory,
+                ToAnalysisRequest(request),
+                request.Format,
+                cancellationToken));
+
+        group.MapGet("/runs/{runId}", async (
+            string runId,
+            IAnalysisRunRepository repository,
+            CancellationToken cancellationToken) =>
+        {
+            if (!Guid.TryParse(runId, out var id))
+                return Results.NotFound(new ApiError { Message = $"run not found: {runId}" });
+
+            try
+            {
+                var run = await repository.GetAsync(id, cancellationToken);
+                if (run is null)
+                    return Results.NotFound(new ApiError { Message = $"run not found: {runId}" });
+
+                return Results.Ok(ToRunResponse(run));
+            }
+            catch (Exception exception)
+            {
+                return Results.Json(
+                    new ApiError { Message = "run lookup unavailable: " + exception.Message },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        });
 
         group.MapGet("/analyses/{aoiId}/summary", (
             string aoiId,
@@ -86,19 +121,29 @@ public static class AnalysisEndpoints
                 EndYear = endYear
             }));
 
-        group.MapPost("/analyses/{aoiId}/reports", (
+        group.MapPost("/analyses/{aoiId}/reports", async (
             string aoiId,
             int startYear,
             int endYear,
             string? format,
             IAnalysisPipeline pipeline,
-            IReportService reportService) =>
-            BuildReport(pipeline, reportService, new AnalysisRequest
-            {
-                AoiId = aoiId,
-                StartYear = startYear,
-                EndYear = endYear
-            }, format));
+            IReportService reportService,
+            IAnalysisRunRepository repository,
+            ILoggerFactory loggerFactory,
+            CancellationToken cancellationToken) =>
+            await BuildReport(
+                pipeline,
+                reportService,
+                repository,
+                loggerFactory,
+                new AnalysisRequest
+                {
+                    AoiId = aoiId,
+                    StartYear = startYear,
+                    EndYear = endYear
+                },
+                format,
+                cancellationToken));
 
         group.MapGet("/analyses/{aoiId}/yearly.csv", (
             string aoiId,
@@ -370,16 +415,21 @@ public static class AnalysisEndpoints
         }
     }
 
-    private static IResult BuildReport(
+    private static async Task<IResult> BuildReport(
         IAnalysisPipeline pipeline,
         IReportService reportService,
+        IAnalysisRunRepository repository,
+        ILoggerFactory loggerFactory,
         AnalysisRequest request,
-        string? format)
+        string? format,
+        CancellationToken cancellationToken)
     {
         try
         {
             var summary = pipeline.Run(request);
             var report = reportService.Generate(summary);
+
+            await TrySaveReportAsync(repository, loggerFactory, summary.RunId, format ?? "pdf", cancellationToken);
 
             return format switch
             {
@@ -391,6 +441,25 @@ public static class AnalysisEndpoints
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or KeyNotFoundException)
         {
             return Results.BadRequest(new ApiError { Message = exception.Message });
+        }
+    }
+
+    private static async Task TrySaveReportAsync(
+        IAnalysisRunRepository repository,
+        ILoggerFactory loggerFactory,
+        string runId,
+        string format,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await repository.SaveReportAsync(Guid.Parse(runId), format, null, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            loggerFactory
+                .CreateLogger("AnalysisEndpoints")
+                .LogWarning(exception, "Не удалось сохранить отчёт в базу данных.");
         }
     }
 
@@ -504,5 +573,24 @@ public static class AnalysisEndpoints
             .ToArray(),
         CciChangeMeanTonnesPerHectare = summary.CciChangeMeanTonnesPerHectare,
         Warnings = summary.Warnings
+    };
+
+    private static AnalysisRunResponse ToRunResponse(AnalysisRun run) => new()
+    {
+        RunId = run.Id.ToString("N"),
+        Status = run.Status.ToString(),
+        MethodVersion = run.MethodVersion ?? string.Empty,
+        DataVersion = run.DataVersion ?? string.Empty,
+        CreatedAt = run.CreatedAt,
+        InputHash = run.InputHash ?? string.Empty,
+        AoiId = run.AoiId,
+        StartYear = run.YearStart,
+        YearEnd = run.YearEnd,
+        PolygonAreaHectares = run.CarbonMetrics?.CalculatedAreaHa ?? 0,
+        Units = run.BaselineResult?.QUnits,
+        QStatus = run.BaselineResult?.QStatus.ToString(),
+        Warnings = run.Risks
+            .Select(risk => risk.Message ?? string.Empty)
+            .ToArray()
     };
 }

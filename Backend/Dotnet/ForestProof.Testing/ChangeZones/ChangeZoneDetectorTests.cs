@@ -96,7 +96,7 @@ public sealed class ChangeZoneDetectorTests
     }
 
     [Fact]
-    public void Detect_WhenComponentHasNoConfirmation_IgnoresComponent()
+    public void Detect_WhenComponentHasNoConfirmation_KeepsComponent()
     {
         // Arrange
         var systemUnderTests = new ChangeZoneDetector(_options);
@@ -109,7 +109,7 @@ public sealed class ChangeZoneDetectorTests
         var zones = systemUnderTests.Detect(pixels, CreateGrid());
 
         // Assert
-        zones.Should().BeEmpty();
+        zones.Should().ContainSingle();
     }
 
     private static RasterGrid CreateGrid() => new()

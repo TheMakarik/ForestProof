@@ -1,0 +1,92 @@
+name: forestproof
+
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    container_name: forestproof-postgis
+    environment:
+      POSTGRES_DB: forestproof
+      POSTGRES_USER: forestproof
+      POSTGRES_PASSWORD: forestproof
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgis-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forestproof -d forestproof"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Backend/Docker/Dotnet.Dockerfile
+    container_name: forestproof-backend
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__ForestProof: "Host=postgis;Port=5432;Database=forestproof;Username=forestproof;Password=forestproof"
+      DataOptions__DataRoot: /data
+    depends_on:
+      postgis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Backend/Docker/Go.Dockerfile
+    container_name: forestproof-gateway
+    environment:
+      GATEWAY_ADDR: ":5300"
+      CSHARP_BASE_URL: http://backend:8080
+      CSHARP_TIMEOUT: 120s
+      JOB_TIMEOUT: 300s
+      DATA_ROOT: /data
+      GATEWAY_CACHE_DIR: /cache
+    ports:
+      - "5300:5300"
+    volumes:
+      - gateway-cache:/cache
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5300/healthz >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Backend/Docker/Frontend.Dockerfile
+      args:
+        VITE_USE_MOCK: "false"
+        VITE_API_BASE: /api/v1
+    container_name: forestproof-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      gateway:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgis-data:
+  gateway-cache:

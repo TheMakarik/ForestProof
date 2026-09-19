@@ -32,6 +32,51 @@ public sealed class AnalysisRunRepository(IDbContextFactory<ForestProofDbContext
         return runId;
     }
 
+    /// <inheritdoc />
+    public async Task<AnalysisRun?> GetAsync(Guid runId, CancellationToken cancellationToken = default)
+    {
+        await using var dbContext = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        return await dbContext.AnalysisRuns
+            .AsNoTracking()
+            .Include(run => run.CarbonMetrics)
+            .Include(run => run.BaselineResult)
+            .Include(run => run.YearlySeries)
+            .Include(run => run.ScenarioValuations)
+            .Include(run => run.ChangeZones)
+                .ThenInclude(zone => zone.ZoneEvidence)
+            .Include(run => run.Reports)
+            .Include(run => run.Risks)
+            .FirstOrDefaultAsync(run => run.Id == runId, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task SaveReportAsync(
+        Guid runId,
+        string format,
+        string? uri,
+        CancellationToken cancellationToken = default)
+    {
+        await using var dbContext = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var runExists = await dbContext.AnalysisRuns
+            .AsNoTracking()
+            .AnyAsync(run => run.Id == runId, cancellationToken);
+
+        if (!runExists)
+            return;
+
+        dbContext.Reports.Add(new ReportEntity
+        {
+            Id = Guid.NewGuid(),
+            RunId = runId,
+            Format = MapReportFormat(format),
+            Uri = uri
+        });
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     private static AnalysisRun BuildRun(Guid runId, AnalysisSummary summary, AnalysisRequest request)
     {
         var firstYear = summary.YearlySeries[0];
@@ -155,6 +200,13 @@ public sealed class AnalysisRunRepository(IDbContextFactory<ForestProofDbContext
             return null;
         }
     }
+
+    private static ReportFormat MapReportFormat(string format) => format switch
+    {
+        "html" => ReportFormat.Html,
+        "json" => ReportFormat.Json,
+        _ => ReportFormat.Pdf
+    };
 
     private static AnalysisStatus MapStatus(RunStatus status) => status switch
     {

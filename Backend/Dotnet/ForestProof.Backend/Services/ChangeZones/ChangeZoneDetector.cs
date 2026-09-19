@@ -39,9 +39,6 @@ public sealed class ChangeZoneDetector(IOptions<CalculationOptions> options) : I
             if (areaHectares <= _options.MinChangeZoneAreaHectares)
                 continue;
 
-            if (!component.Any(pixel => pixel.HasConfirmation))
-                continue;
-
             zones.Add(new ChangeZone
             {
                 Id = nextId++,
